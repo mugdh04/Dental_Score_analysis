@@ -1,0 +1,21 @@
+# Python caches
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+
+# Virtual environments
+.venv/
+venv/
+
+# Django
+*.sqlite3
+*.log
+
+# Checkpoints and outputs
+ml/checkpoints/
+
+# IDE/editor
+.vscode/
+*.code-workspace
+Thesis_Data/

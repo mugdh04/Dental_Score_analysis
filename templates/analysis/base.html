@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}DentAI Analyzer{% endblock %}</title>
+    
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        dental: {
+                            50: '#f0fdfa',
+                            100: '#ccfbf1',
+                            200: '#99f6e4',
+                            300: '#5eead4',
+                            400: '#2dd4bf',
+                            500: '#14b8a6',
+                            600: '#0d9488',
+                            700: '#0f766e',
+                            800: '#115e59',
+                            900: '#134e4a',
+                        }
+                    },
+                    fontFamily: {
+                        sans: ['Inter', 'system-ui', '-apple-system', 'sans-serif'],
+                        display: ['Playfair Display', 'Georgia', 'serif'],
+                    }
+                }
+            }
+        }
+    </script>
+
+    <!-- Alpine.js -->
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Playfair+Display:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+
+    <style>
+        [x-cloak] { display: none !important; }
+        
+        body {
+            font-family: 'Inter', system-ui, sans-serif;
+        }
+
+        .gradient-bg {
+            background: linear-gradient(135deg, #0f766e 0%, #115e59 25%, #134e4a 50%, #0f766e 75%, #0d9488 100%);
+            background-size: 400% 400%;
+            animation: gradientShift 15s ease infinite;
+        }
+
+        @keyframes gradientShift {
+            0%, 100% { background-position: 0% 50%; }
+            50% { background-position: 100% 50%; }
+        }
+
+        .glass-card {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(20px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+
+        .glass-dark {
+            background: rgba(255, 255, 255, 0.08);
+            backdrop-filter: blur(20px);
+            border: 1px solid rgba(255, 255, 255, 0.15);
+        }
+
+        .upload-zone {
+            border: 2px dashed #99f6e4;
+            transition: all 0.3s ease;
+        }
+
+        .upload-zone:hover, .upload-zone.drag-over {
+            border-color: #14b8a6;
+            background: rgba(20, 184, 166, 0.05);
+            transform: scale(1.01);
+        }
+
+        .score-ring {
+            transform: rotate(-90deg);
+        }
+
+        .tooth-pattern {
+            background-image: url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M30 5c-4 0-7 2-8 5-1-2-4-3-6-2s-4 4-3 8c1 4 3 8 5 12 2 4 4 9 5 14 1 5 3 8 7 8s6-3 7-8c1-5 3-10 5-14 2-4 4-8 5-12 1-4 0-7-3-8s-5 0-6 2c-1-3-4-5-8-5z' fill='rgba(255,255,255,0.03)' /%3E%3C/svg%3E");
+        }
+
+        .fade-in {
+            animation: fadeIn 0.6s ease-out forwards;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .pulse-glow {
+            animation: pulseGlow 2s ease-in-out infinite;
+        }
+
+        @keyframes pulseGlow {
+            0%, 100% { box-shadow: 0 0 20px rgba(20, 184, 166, 0.3); }
+            50% { box-shadow: 0 0 40px rgba(20, 184, 166, 0.6); }
+        }
+
+        /* Custom scrollbar */
+        ::-webkit-scrollbar {
+            width: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: rgba(20, 184, 166, 0.3);
+            border-radius: 3px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: rgba(20, 184, 166, 0.5);
+        }
+    </style>
+    {% block extra_head %}{% endblock %}
+</head>
+<body class="min-h-full gradient-bg tooth-pattern">
+    <!-- Navigation -->
+    <nav class="glass-dark sticky top-0 z-50 shadow-lg">
+        <div class="max-w-7xl mx-auto px-6 py-4">
+            <div class="flex items-center justify-between">
+                <a href="{% url 'analysis:upload' %}" class="flex items-center gap-3 group">
+                    <div class="w-10 h-10 bg-dental-400 rounded-xl flex items-center justify-center shadow-lg group-hover:bg-dental-300 transition-colors">
+                        <i data-lucide="scan-line" class="w-5 h-5 text-dental-900"></i>
+                    </div>
+                    <div>
+                        <h1 class="text-xl font-display font-bold text-white tracking-tight">DentAI</h1>
+                        <p class="text-[10px] text-dental-300 tracking-widest uppercase">Dental Index Analyzer</p>
+                    </div>
+                </a>
+                <div class="flex items-center gap-4">
+                    <a href="{% url 'analysis:upload' %}" class="text-dental-200 hover:text-white text-sm font-medium transition-colors flex items-center gap-2">
+                        <i data-lucide="upload" class="w-4 h-4"></i>
+                        New Analysis
+                    </a>
+                    <a href="{% url 'analysis:lookup' %}" class="text-dental-200 hover:text-white text-sm font-medium transition-colors flex items-center gap-2">
+                        <i data-lucide="search" class="w-4 h-4"></i>
+                        Lookup
+                    </a>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Main Content -->
+    <main class="max-w-7xl mx-auto px-6 py-8">
+        {% block content %}{% endblock %}
+    </main>
+
+    <!-- Footer -->
+    <footer class="glass-dark mt-12 border-t border-white/10">
+        <div class="max-w-7xl mx-auto px-6 py-6">
+            <div class="flex items-center justify-between text-dental-300 text-sm">
+                <p>&copy; 2024 DentAI Analyzer — AI-Powered Dental Index Prediction</p>
+                <p class="flex items-center gap-2">
+                    <i data-lucide="shield-check" class="w-4 h-4"></i>
+                    Clinical Research Tool
+                </p>
+            </div>
+        </div>
+    </footer>
+
+    <script>
+        // Initialize Lucide icons
+        document.addEventListener('DOMContentLoaded', () => {
+            lucide.createIcons();
+        });
+    </script>
+    {% block extra_scripts %}{% endblock %}
+</body>
+</html>

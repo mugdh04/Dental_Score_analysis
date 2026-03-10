@@ -1,0 +1,152 @@
+{% extends "analysis/base.html" %}
+{% block title %}Analyzing — DentAI{% endblock %}
+
+{% block content %}
+<div class="fade-in max-w-2xl mx-auto text-center" x-data="processingStatus()" x-init="startPolling()">
+    <!-- Animated Dental Icon -->
+    <div class="mb-8">
+        <div class="w-28 h-28 mx-auto relative pulse-glow rounded-full bg-dental-400/20 flex items-center justify-center">
+            <div class="absolute inset-0 rounded-full border-4 border-dental-400/30 animate-ping"></div>
+            <svg class="w-14 h-14 text-dental-300 animate-pulse" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                <path d="M12 2C9 2 7 4 6 6c-1-1.5-3-2-4.5-1.5S-1 8 .5 11c1.5 3 3 7 4 10 1 3 2.5 5 5.5 5s4.5-2 5.5-5c1-3 2.5-7 4-10 1.5-3 1-5.5-.5-6.5S15 4.5 14 6c-1-2-3-4-6-4z" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+        </div>
+    </div>
+
+    <!-- Status Text -->
+    <h2 class="text-3xl font-display font-bold text-white mb-3">
+        <span x-show="status === 'processing'">Analyzing Dental Photographs</span>
+        <span x-show="status === 'pending'">Preparing Analysis</span>
+        <span x-show="status === 'failed'" class="text-red-300">Analysis Failed</span>
+    </h2>
+
+    <p class="text-dental-200 mb-2" x-show="status !== 'failed'">
+        Patient: <span class="font-semibold text-white">{{ patient.patient_name }}</span>
+    </p>
+    <p class="text-dental-300 text-sm mb-8" x-show="status !== 'failed'">
+        Your unique code: <span class="font-mono font-bold text-dental-200 text-lg bg-dental-900/50 px-3 py-1 rounded-lg">{{ patient.unique_code }}</span>
+    </p>
+
+    <!-- Error message -->
+    <div x-show="status === 'failed'" class="glass-card rounded-2xl p-6 mb-8 text-left">
+        <div class="flex items-start gap-3">
+            <i data-lucide="alert-triangle" class="w-6 h-6 text-red-500 flex-shrink-0 mt-0.5"></i>
+            <div>
+                <p class="text-gray-700 font-semibold mb-1">Something went wrong</p>
+                <p class="text-gray-500 text-sm" x-text="errorMessage"></p>
+                <a href="{% url 'analysis:upload' %}" 
+                   class="inline-flex items-center gap-2 mt-4 text-dental-600 hover:text-dental-700 font-medium text-sm">
+                    <i data-lucide="arrow-left" class="w-4 h-4"></i>
+                    Try again
+                </a>
+            </div>
+        </div>
+    </div>
+
+    <!-- Progress Bar -->
+    <div class="glass-card rounded-2xl p-6 mb-8" x-show="status !== 'failed'">
+        <div class="w-full bg-gray-100 rounded-full h-2 mb-4 overflow-hidden">
+            <div class="bg-gradient-to-r from-dental-400 to-dental-600 h-2 rounded-full transition-all duration-1000 ease-out"
+                 :style="'width: ' + progress + '%'"></div>
+        </div>
+        <p class="text-gray-500 text-sm" x-text="progressText"></p>
+    </div>
+
+    <!-- Rotating Dental Quotes -->
+    <div class="glass-dark rounded-2xl p-8 max-w-lg mx-auto" x-show="status !== 'failed'">
+        <div class="flex items-start gap-4">
+            <i data-lucide="message-circle" class="w-6 h-6 text-dental-400 flex-shrink-0 mt-1"></i>
+            <div>
+                <p class="text-dental-100 text-lg italic leading-relaxed" 
+                   x-text="currentQuote"
+                   x-transition:enter="transition ease-out duration-500"
+                   x-transition:enter-start="opacity-0 transform translate-y-2"
+                   x-transition:enter-end="opacity-100 transform translate-y-0">
+                </p>
+                <p class="text-dental-400 text-xs mt-3 uppercase tracking-wider">Dental Health Tip</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Save Code Reminder -->
+    <div class="mt-6 glass-dark rounded-xl p-4 max-w-md mx-auto" x-show="status !== 'failed'">
+        <p class="text-dental-200 text-sm flex items-center justify-center gap-2">
+            <i data-lucide="bookmark" class="w-4 h-4 text-dental-400"></i>
+            Save your code <span class="font-mono font-bold text-dental-100">{{ patient.unique_code }}</span> to look up results later
+        </p>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+function processingStatus() {
+    const quotes = {{ quotes|safe }};
+    
+    return {
+        status: '{{ patient.status }}',
+        progress: 10,
+        progressText: 'Initializing analysis...',
+        currentQuote: quotes[0],
+        quoteIndex: 0,
+        errorMessage: '',
+
+        startPolling() {
+            // Rotate quotes every 4 seconds
+            setInterval(() => {
+                this.quoteIndex = (this.quoteIndex + 1) % quotes.length;
+                this.currentQuote = quotes[this.quoteIndex];
+            }, 4000);
+
+            // Simulate progress
+            const progressSteps = [
+                { at: 1000, val: 20, text: 'Loading AI model...' },
+                { at: 3000, val: 35, text: 'Processing frontal view...' },
+                { at: 5000, val: 50, text: 'Processing lateral views...' },
+                { at: 7000, val: 65, text: 'Fusing multi-view features...' },
+                { at: 9000, val: 78, text: 'Computing dental indices...' },
+                { at: 11000, val: 88, text: 'Generating attention maps...' },
+                { at: 13000, val: 93, text: 'Finalizing results...' },
+            ];
+
+            progressSteps.forEach(step => {
+                setTimeout(() => {
+                    if (this.status !== 'completed' && this.status !== 'failed') {
+                        this.progress = step.val;
+                        this.progressText = step.text;
+                    }
+                }, step.at);
+            });
+
+            // Poll for actual status
+            this.pollStatus();
+        },
+
+        async pollStatus() {
+            try {
+                const response = await fetch('{% url "analysis:check_status" pk=patient.pk %}');
+                const data = await response.json();
+                this.status = data.status;
+
+                if (data.status === 'completed') {
+                    this.progress = 100;
+                    this.progressText = 'Analysis complete!';
+                    // Redirect to results after brief delay
+                    setTimeout(() => {
+                        window.location.href = '{% url "analysis:results" pk=patient.pk %}';
+                    }, 1000);
+                } else if (data.status === 'failed') {
+                    this.errorMessage = data.error || 'Unknown error occurred.';
+                } else {
+                    // Keep polling every 2 seconds
+                    setTimeout(() => this.pollStatus(), 2000);
+                }
+            } catch (err) {
+                // Retry on network error
+                setTimeout(() => this.pollStatus(), 3000);
+            }
+        }
+    };
+}
+</script>
+{% endblock %}
