@@ -1,6 +1,7 @@
 """
 Multi-view, multi-task dental index prediction model.
-Architecture: EfficientNet-B4 backbone (shared) with 3 ordinal regression heads.
+Architecture: Configurable timm backbone (shared) with 3 ordinal regression heads.
+Supports EfficientNet, EfficientNetV2, ConvNeXt-V2, and any timm model.
 
 Input: 3 dental photographs (frontal, left lateral, right lateral)
 Output: 3 ordinal scores (MGI 0-4, OHI 0-3, GEI 0-2)
@@ -16,8 +17,8 @@ class MultiViewDentalModel(nn.Module):
     Multi-view multi-task model for dental index prediction.
 
     Architecture:
-        1. Shared EfficientNet-B4 backbone processes each view independently
-        2. Features from all 3 views are concatenated (3 x 1792 = 5376)
+        1. Shared timm backbone processes each view independently
+        2. Features from all 3 views are concatenated (3 x feature_dim)
         3. Shared representation layers
         4. Three separate classification heads for MGI, OHI, GEI
         5. Each head outputs logits for ordinal regression (K-1 thresholds)
@@ -25,7 +26,7 @@ class MultiViewDentalModel(nn.Module):
 
     def __init__(
         self,
-        backbone_name='efficientnet_b0',
+        backbone_name='efficientnet_b3',
         pretrained=True,
         mgi_classes=5,
         ohi_classes=4,
@@ -38,14 +39,15 @@ class MultiViewDentalModel(nn.Module):
         self.ohi_classes = ohi_classes
         self.gei_classes = gei_classes
 
-        # Shared backbone - EfficientNet-B4
+        # Shared backbone (any timm model)
+        self.backbone_name = backbone_name
         self.backbone = timm.create_model(
             backbone_name,
             pretrained=pretrained,
             num_classes=0,       # Remove classification head (features only)
             global_pool='avg',   # Global average pooling
         )
-        feature_dim = self.backbone.num_features  # 1792 for EfficientNet-B4
+        feature_dim = self.backbone.num_features
 
         # Multi-view fusion: concatenate features from 3 views
         fused_dim = feature_dim * 3  # 5376
@@ -154,9 +156,19 @@ def build_model(pretrained=True, device='cpu'):
 
 
 def load_model(checkpoint_path, device='cpu'):
-    """Load a trained model from checkpoint."""
-    model = MultiViewDentalModel(pretrained=False)
+    """Load a trained model from checkpoint.
+    
+    Reads backbone_name from the checkpoint config if available,
+    so the correct architecture is reconstructed automatically.
+    """
     checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=False)
+    
+    # Determine backbone from saved config
+    backbone_name = 'efficientnet_b3'  # fallback default
+    if 'config' in checkpoint and 'backbone_name' in checkpoint['config']:
+        backbone_name = checkpoint['config']['backbone_name']
+    
+    model = MultiViewDentalModel(backbone_name=backbone_name, pretrained=False)
     if 'model_state_dict' in checkpoint:
         model.load_state_dict(checkpoint['model_state_dict'])
     else:
