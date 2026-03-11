@@ -50,7 +50,7 @@ def load_trained_model(checkpoint_path=None):
     if not os.path.exists(checkpoint_path):
         raise FileNotFoundError(
             f"Model checkpoint not found at {checkpoint_path}. "
-            f"Please train the model first using: python ml/train.py"
+            f"Please train the model first using the Train_Model.ipynb notebook."
         )
 
     device = get_device()
@@ -58,6 +58,21 @@ def load_trained_model(checkpoint_path=None):
     _model_cache = model
     print(f"Model loaded from {checkpoint_path} on {device}")
     return model
+
+
+def _get_image_size_from_checkpoint(checkpoint_path=None):
+    """Read the image_size used during training from checkpoint config."""
+    if checkpoint_path is None:
+        base_dir = Path(__file__).resolve().parent.parent
+        checkpoint_path = base_dir / 'ml' / 'checkpoints' / 'best_model.pth'
+    if os.path.exists(checkpoint_path):
+        try:
+            ckpt = torch.load(checkpoint_path, map_location='cpu', weights_only=False)
+            if 'config' in ckpt and 'image_size' in ckpt['config']:
+                return ckpt['config']['image_size']
+        except Exception:
+            pass
+    return None  # fall back to default
 
 
 def predict_from_images(frontal_path, left_path, right_path, checkpoint_path=None):
@@ -81,7 +96,8 @@ def predict_from_images(frontal_path, left_path, right_path, checkpoint_path=Non
     """
     device = get_device()
     model = load_trained_model(checkpoint_path)
-    transform = get_inference_transforms()
+    img_size = _get_image_size_from_checkpoint(checkpoint_path)
+    transform = get_inference_transforms(img_size)
 
     # Load and transform images
     frontal_pil = Image.open(frontal_path).convert('RGB')
@@ -126,7 +142,8 @@ def predict_from_pil_images(frontal_pil, left_pil, right_pil, checkpoint_path=No
     """
     device = get_device()
     model = load_trained_model(checkpoint_path)
-    transform = get_inference_transforms()
+    img_size = _get_image_size_from_checkpoint(checkpoint_path)
+    transform = get_inference_transforms(img_size)
 
     frontal_pil = frontal_pil.convert('RGB')
     left_pil = left_pil.convert('RGB')
