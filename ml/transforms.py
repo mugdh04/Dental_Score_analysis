@@ -6,17 +6,18 @@ Training transforms include augmentation; validation/inference transforms are de
 from torchvision import transforms
 
 
-# EfficientNet-B0 expects 224x224 input
-IMAGE_SIZE = 224
+# Default image size (overridable via parameter)
+IMAGE_SIZE = 300
 IMAGENET_MEAN = [0.485, 0.456, 0.406]
 IMAGENET_STD = [0.229, 0.224, 0.225]
 
 
-def get_train_transforms():
+def get_train_transforms(image_size=None):
     """Training transforms with data augmentation for dental images."""
+    sz = image_size or IMAGE_SIZE
     return transforms.Compose([
-        transforms.Resize((IMAGE_SIZE + 20, IMAGE_SIZE + 20)),
-        transforms.RandomCrop(IMAGE_SIZE),
+        transforms.Resize((sz + 24, sz + 24)),
+        transforms.RandomCrop(sz),
         transforms.RandomHorizontalFlip(p=0.5),
         transforms.RandomRotation(degrees=10),
         transforms.ColorJitter(
@@ -36,15 +37,16 @@ def get_train_transforms():
     ])
 
 
-def get_val_transforms():
+def get_val_transforms(image_size=None):
     """Validation/inference transforms - deterministic."""
+    sz = image_size or IMAGE_SIZE
     return transforms.Compose([
-        transforms.Resize((IMAGE_SIZE, IMAGE_SIZE)),
+        transforms.Resize((sz, sz)),
         transforms.ToTensor(),
         transforms.Normalize(mean=IMAGENET_MEAN, std=IMAGENET_STD),
     ])
 
 
-def get_inference_transforms():
+def get_inference_transforms(image_size=None):
     """Inference transforms (same as validation)."""
-    return get_val_transforms()
+    return get_val_transforms(image_size)
