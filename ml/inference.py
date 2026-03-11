@@ -4,14 +4,15 @@ Loads a trained model and predicts MGI, OHI, GEI scores from 3 dental photograph
 """
 
 import os
-import torch
 import numpy as np
 from PIL import Image
 from pathlib import Path
 
-from ml.model import load_model, MultiViewDentalModel
+# Defer torch import to avoid DLL issues with Python 3.14
+# It will be imported inside functions where needed
+torch = None
+
 from ml.transforms import get_inference_transforms
-from ml.gradcam import generate_gradcam_for_patient
 
 
 # Global model cache
@@ -19,11 +20,21 @@ _model_cache = None
 _device = None
 
 
+def _ensure_torch():
+    """Lazy load torch to avoid DLL initialization errors."""
+    global torch
+    if torch is None:
+        import torch as _torch
+        torch = _torch
+    return torch
+
+
 def get_device():
     """Get the best available device."""
     global _device
     if _device is None:
-        _device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        torch_module = _ensure_torch()
+        _device = torch_module.device('cuda' if torch_module.cuda.is_available() else 'cpu')
     return _device
 
 
@@ -38,6 +49,7 @@ def load_trained_model(checkpoint_path=None):
         Loaded model in eval mode.
     """
     global _model_cache
+    torch_module = _ensure_torch()
 
     if _model_cache is not None:
         return _model_cache
@@ -53,6 +65,7 @@ def load_trained_model(checkpoint_path=None):
             f"Please train the model first using the Train_Model.ipynb notebook."
         )
 
+    from ml.model import load_model
     device = get_device()
     model = load_model(checkpoint_path, device)
     _model_cache = model
@@ -62,12 +75,13 @@ def load_trained_model(checkpoint_path=None):
 
 def _get_image_size_from_checkpoint(checkpoint_path=None):
     """Read the image_size used during training from checkpoint config."""
+    torch_module = _ensure_torch()
     if checkpoint_path is None:
         base_dir = Path(__file__).resolve().parent.parent
         checkpoint_path = base_dir / 'ml' / 'checkpoints' / 'best_model.pth'
     if os.path.exists(checkpoint_path):
         try:
-            ckpt = torch.load(checkpoint_path, map_location='cpu', weights_only=False)
+            ckpt = torch_module.load(checkpoint_path, map_location='cpu', weights_only=False)
             if 'config' in ckpt and 'image_size' in ckpt['config']:
                 return ckpt['config']['image_size']
         except Exception:
@@ -94,6 +108,9 @@ def predict_from_images(frontal_path, left_path, right_path, checkpoint_path=Non
                 'gradcam': {'frontal': PIL.Image, 'left_lateral': PIL.Image, 'right_lateral': PIL.Image}
             }
     """
+    from ml.gradcam import generate_gradcam_for_patient
+    torch_module = _ensure_torch()
+    
     device = get_device()
     model = load_trained_model(checkpoint_path)
     img_size = _get_image_size_from_checkpoint(checkpoint_path)
@@ -140,6 +157,9 @@ def predict_from_pil_images(frontal_pil, left_pil, right_pil, checkpoint_path=No
     Predict dental indices from 3 PIL Image objects.
     Same as predict_from_images but accepts PIL Images directly.
     """
+    from ml.gradcam import generate_gradcam_for_patient
+    torch_module = _ensure_torch()
+    
     device = get_device()
     model = load_trained_model(checkpoint_path)
     img_size = _get_image_size_from_checkpoint(checkpoint_path)
