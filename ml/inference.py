@@ -1,6 +1,7 @@
 """
 Inference module for dental index prediction.
 Loads a trained DINOv2 + ensemble model and predicts MGI, OHI, GEI scores.
+Supports TTA (Test-Time Augmentation) for improved accuracy.
 """
 
 import os
@@ -10,7 +11,7 @@ from pathlib import Path
 
 torch = None
 
-from ml.transforms import get_inference_transforms
+from ml.transforms import get_inference_transforms, get_tta_transforms
 
 _model_cache = None
 _model_path_cache = None
@@ -68,95 +69,107 @@ def load_trained_model(checkpoint_path=None):
     return model
 
 
-def predict_from_images(frontal_path, left_path, right_path, checkpoint_path=None):
+def _predict_with_tta(model, frontal_pil, left_pil, right_pil, device):
+    """Run TTA: average predictions over multiple augmented views."""
+    tta_transforms = get_tta_transforms()
+    all_probs = {k: [] for k in ['mgi', 'ohi', 'gei']}
+
+    for tfm in tta_transforms:
+        f_t = tfm(frontal_pil).unsqueeze(0).to(device)
+        l_t = tfm(left_pil).unsqueeze(0).to(device)
+        r_t = tfm(right_pil).unsqueeze(0).to(device)
+
+        with torch.no_grad():
+            results = model.predict_scores(f_t, l_t, r_t)
+        for key in ['mgi', 'ohi', 'gei']:
+            all_probs[key].append(results[key]['probs'].cpu())
+
+    predictions = {}
+    for key in ['mgi', 'ohi', 'gei']:
+        avg_probs = torch.stack(all_probs[key]).mean(dim=0)
+        predicted = avg_probs.argmax(dim=1).int()
+        confidence = avg_probs.max(dim=1).values * 100.0
+        predictions[key] = {
+            'score': predicted.item(),
+            'confidence': confidence.item(),
+        }
+    return predictions
+
+
+def _predict_standard(model, frontal_pil, left_pil, right_pil, device, transform):
+    """Standard single-pass prediction."""
+    f_t = transform(frontal_pil).unsqueeze(0).to(device)
+    l_t = transform(left_pil).unsqueeze(0).to(device)
+    r_t = transform(right_pil).unsqueeze(0).to(device)
+
+    with torch.no_grad():
+        results = model.predict_scores(f_t, l_t, r_t)
+
+    predictions = {}
+    for key in ['mgi', 'ohi', 'gei']:
+        predictions[key] = {
+            'score': results[key]['score'].item(),
+            'confidence': results[key]['confidence'].item(),
+        }
+    return predictions
+
+
+def _attach_gradcam(predictions, model, frontal_pil, left_pil, right_pil, device):
+    """Attempt Grad-CAM generation (best effort)."""
+    try:
+        from ml.gradcam import generate_gradcam_for_patient
+        images = {
+            'frontal': frontal_pil,
+            'left_lateral': left_pil,
+            'right_lateral': right_pil,
+        }
+        predictions['gradcam'] = generate_gradcam_for_patient(model, images, device)
+    except Exception:
+        predictions['gradcam'] = None
+    return predictions
+
+
+def predict_from_images(frontal_path, left_path, right_path, checkpoint_path=None, use_tta=True):
     """
     Predict dental indices from 3 image file paths.
 
+    Args:
+        use_tta: If True, use Test-Time Augmentation for better accuracy.
+
     Returns:
-        dict with predictions:
-            {
-                'mgi': {'score': int, 'confidence': float},
-                'ohi': {'score': int, 'confidence': float},
-                'gei': {'score': int, 'confidence': float},
-                'gradcam': dict of overlay PIL Images or None
-            }
+        dict with 'mgi', 'ohi', 'gei' predictions and optional 'gradcam'.
     """
     _ensure_torch()
-
     device = get_device()
     model = load_trained_model(checkpoint_path)
-    transform = get_inference_transforms()
 
     frontal_pil = Image.open(frontal_path).convert('RGB')
     left_pil = Image.open(left_path).convert('RGB')
     right_pil = Image.open(right_path).convert('RGB')
 
-    frontal_tensor = transform(frontal_pil).unsqueeze(0).to(device)
-    left_tensor = transform(left_pil).unsqueeze(0).to(device)
-    right_tensor = transform(right_pil).unsqueeze(0).to(device)
+    if use_tta:
+        predictions = _predict_with_tta(model, frontal_pil, left_pil, right_pil, device)
+    else:
+        transform = get_inference_transforms()
+        predictions = _predict_standard(model, frontal_pil, left_pil, right_pil, device, transform)
 
-    results = model.predict_scores(frontal_tensor, left_tensor, right_tensor)
-
-    predictions = {}
-    for key in ['mgi', 'ohi', 'gei']:
-        predictions[key] = {
-            'score': results[key]['score'].item(),
-            'confidence': results[key]['confidence'].item(),
-        }
-
-    # Grad-CAM (best effort — may fail for ensemble/ViT models)
-    try:
-        from ml.gradcam import generate_gradcam_for_patient
-        images = {
-            'frontal': frontal_pil,
-            'left_lateral': left_pil,
-            'right_lateral': right_pil,
-        }
-        gradcam_overlays = generate_gradcam_for_patient(model, images, device)
-        predictions['gradcam'] = gradcam_overlays
-    except Exception as e:
-        print(f"Grad-CAM generation failed (expected for ViT models): {e}")
-        predictions['gradcam'] = None
-
-    return predictions
+    return _attach_gradcam(predictions, model, frontal_pil, left_pil, right_pil, device)
 
 
-def predict_from_pil_images(frontal_pil, left_pil, right_pil, checkpoint_path=None):
+def predict_from_pil_images(frontal_pil, left_pil, right_pil, checkpoint_path=None, use_tta=True):
     """Predict dental indices from 3 PIL Image objects."""
     _ensure_torch()
-
     device = get_device()
     model = load_trained_model(checkpoint_path)
-    transform = get_inference_transforms()
 
     frontal_pil = frontal_pil.convert('RGB')
     left_pil = left_pil.convert('RGB')
     right_pil = right_pil.convert('RGB')
 
-    frontal_tensor = transform(frontal_pil).unsqueeze(0).to(device)
-    left_tensor = transform(left_pil).unsqueeze(0).to(device)
-    right_tensor = transform(right_pil).unsqueeze(0).to(device)
+    if use_tta:
+        predictions = _predict_with_tta(model, frontal_pil, left_pil, right_pil, device)
+    else:
+        transform = get_inference_transforms()
+        predictions = _predict_standard(model, frontal_pil, left_pil, right_pil, device, transform)
 
-    results = model.predict_scores(frontal_tensor, left_tensor, right_tensor)
-
-    predictions = {}
-    for key in ['mgi', 'ohi', 'gei']:
-        predictions[key] = {
-            'score': results[key]['score'].item(),
-            'confidence': results[key]['confidence'].item(),
-        }
-
-    try:
-        from ml.gradcam import generate_gradcam_for_patient
-        images = {
-            'frontal': frontal_pil,
-            'left_lateral': left_pil,
-            'right_lateral': right_pil,
-        }
-        gradcam_overlays = generate_gradcam_for_patient(model, images, device)
-        predictions['gradcam'] = gradcam_overlays
-    except Exception as e:
-        print(f"Grad-CAM generation failed (expected for ViT models): {e}")
-        predictions['gradcam'] = None
-
-    return predictions
+    return _attach_gradcam(predictions, model, frontal_pil, left_pil, right_pil, device)
