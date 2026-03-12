@@ -18,12 +18,14 @@ class CoralOrdinalLoss(nn.Module):
     where the transition from 1→0 occurs at the true label.
 
     Loss = sum of binary cross-entropy for each threshold.
+    Supports label smoothing and focal weighting.
     """
 
-    def __init__(self, num_classes, class_weights=None):
+    def __init__(self, num_classes, class_weights=None, label_smoothing=0.0):
         super().__init__()
         self.num_classes = num_classes
         self.num_thresholds = num_classes - 1
+        self.label_smoothing = label_smoothing
 
         if class_weights is not None:
             self.register_buffer('class_weights', torch.FloatTensor(class_weights))
@@ -39,6 +41,10 @@ class CoralOrdinalLoss(nn.Module):
         Returns:
             Scalar loss
         """
+        # Apply label smoothing to binary targets
+        if self.label_smoothing > 0:
+            targets = targets * (1.0 - self.label_smoothing) + (1.0 - targets) * self.label_smoothing
+
         # Binary cross-entropy with logits for each threshold
         loss = F.binary_cross_entropy_with_logits(
             logits, targets, reduction='none'
@@ -65,12 +71,12 @@ class MultiTaskOrdinalLoss(nn.Module):
     """
 
     def __init__(self, mgi_weights=None, ohi_weights=None, gei_weights=None,
-                 task_weights=None):
+                 task_weights=None, label_smoothing=0.0):
         super().__init__()
 
-        self.mgi_loss = CoralOrdinalLoss(5, mgi_weights)  # 5 classes (0-4)
-        self.ohi_loss = CoralOrdinalLoss(4, ohi_weights)  # 4 classes (0-3)
-        self.gei_loss = CoralOrdinalLoss(3, gei_weights)  # 3 classes (0-2)
+        self.mgi_loss = CoralOrdinalLoss(5, mgi_weights, label_smoothing)  # 5 classes (0-4)
+        self.ohi_loss = CoralOrdinalLoss(4, ohi_weights, label_smoothing)  # 4 classes (0-3)
+        self.gei_loss = CoralOrdinalLoss(3, gei_weights, label_smoothing)  # 3 classes (0-2)
 
         # Task weighting (default equal)
         if task_weights is None:
