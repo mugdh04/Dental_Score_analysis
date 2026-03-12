@@ -1,15 +1,15 @@
 """
 Multi-view, multi-task dental index prediction model.
 
-Architecture: DINOv2-base frozen backbone + lightweight MLP classifier.
+Architecture: DINOv2-base backbone (partially fine-tuned) + MLP classifier.
 DINOv2 (ViT-B/14) was self-supervised on 142M images and produces rich
 visual features that transfer extremely well even with very few samples.
 
 Strategy:
-  1. DINOv2 backbone is FROZEN — no risk of overfitting
-  2. Only a small MLP classifier head is trained (~300K params)
+  1. DINOv2 backbone: early layers frozen, last N blocks fine-tuned
+  2. Differential learning rates: backbone 10-50x lower than head
   3. K-fold cross-validation with ensemble averaging at inference
-  4. Standard classification with class weights for imbalance handling
+  4. Weighted classification loss for class imbalance
 
 Input: 3 dental photographs (frontal, left lateral, right lateral)
 Output: 3 classification scores (MGI 0-4, OHI 0-3, GEI 0-2)
@@ -71,7 +71,7 @@ def _load_dinov2(model_name, pretrained=True, img_size=224):
 
 
 class DentalClassifierHead(nn.Module):
-    """Lightweight MLP classifier on top of frozen DINOv2 features."""
+    """MLP classifier on top of DINOv2 features."""
 
     def __init__(self, input_dim=2304, hidden_dim=512, mgi_classes=5,
                  ohi_classes=4, gei_classes=3, dropout=0.4):
@@ -106,33 +106,73 @@ class DentalClassifierHead(nn.Module):
 
 class DINOv2MultiViewModel(nn.Module):
     """
-    Full model: frozen DINOv2 backbone + trainable classifier head.
-    Used at inference time in the Django app.
+    Full model: DINOv2 backbone (partially fine-tuned) + trainable classifier head.
+    Supports freezing early backbone layers and fine-tuning the last N transformer blocks.
     """
 
     BACKBONE_NAME = 'vit_base_patch14_reg4_dinov2'
     FEATURE_DIM = 768  # per-view feature dim from DINOv2-base
+    NUM_BLOCKS = 12     # DINOv2-base has 12 transformer blocks
 
-    def __init__(self, dropout=0.4, pretrained_backbone=True):
+    def __init__(self, dropout=0.4, pretrained_backbone=True, img_size=224,
+                 unfreeze_blocks=0):
         super().__init__()
+        self.img_size = img_size
+        self.unfreeze_blocks = unfreeze_blocks
 
-        # Frozen DINOv2 backbone (with register tokens)
-        self.backbone = _load_dinov2(self.BACKBONE_NAME, pretrained_backbone)
-        for p in self.backbone.parameters():
-            p.requires_grad = False
-        self.backbone.eval()
+        # DINOv2 backbone (with register tokens)
+        self.backbone = _load_dinov2(self.BACKBONE_NAME, pretrained_backbone,
+                                      img_size=img_size)
+        self._configure_backbone_freezing(unfreeze_blocks)
 
         # Trainable classifier
         fused_dim = self.FEATURE_DIM * 3  # 768 * 3 = 2304
         self.classifier = DentalClassifierHead(
             input_dim=fused_dim, dropout=dropout)
 
+    def _configure_backbone_freezing(self, unfreeze_blocks):
+        """Freeze all backbone params, then unfreeze the last N transformer blocks."""
+        self.unfreeze_blocks = unfreeze_blocks
+
+        # Freeze everything first
+        for p in self.backbone.parameters():
+            p.requires_grad = False
+
+        if unfreeze_blocks <= 0:
+            return
+
+        # Unfreeze fc_norm (final layer norm)
+        for name, p in self.backbone.named_parameters():
+            if 'fc_norm' in name:
+                p.requires_grad = True
+
+        # Unfreeze the last N blocks
+        total_blocks = self.NUM_BLOCKS
+        start_unfreeze = total_blocks - unfreeze_blocks
+        for name, p in self.backbone.named_parameters():
+            if 'blocks.' in name:
+                block_idx = int(name.split('blocks.')[1].split('.')[0])
+                if block_idx >= start_unfreeze:
+                    p.requires_grad = True
+
+    def get_param_groups(self, backbone_lr, head_lr, weight_decay=1e-2):
+        """Get parameter groups with differential learning rates."""
+        backbone_params = [p for p in self.backbone.parameters() if p.requires_grad]
+        head_params = list(self.classifier.parameters())
+
+        groups = []
+        if backbone_params:
+            groups.append({'params': backbone_params, 'lr': backbone_lr,
+                          'weight_decay': weight_decay})
+        groups.append({'params': head_params, 'lr': head_lr,
+                      'weight_decay': weight_decay})
+        return groups
+
     def extract_features(self, frontal, left_lateral, right_lateral):
         """Extract and concatenate DINOv2 features from 3 views."""
-        with torch.no_grad():
-            feat_f = self.backbone(frontal)
-            feat_l = self.backbone(left_lateral)
-            feat_r = self.backbone(right_lateral)
+        feat_f = self.backbone(frontal)
+        feat_l = self.backbone(left_lateral)
+        feat_r = self.backbone(right_lateral)
         return torch.cat([feat_f, feat_l, feat_r], dim=1)
 
     def forward(self, frontal, left_lateral, right_lateral):
@@ -158,27 +198,43 @@ class DINOv2MultiViewModel(nn.Module):
         return results
 
     def train(self, mode=True):
-        """Override: backbone always stays in eval mode."""
+        """Override: frozen backbone layers stay in eval mode; unfrozen layers can train."""
         super().train(mode)
-        self.backbone.eval()
+        if self.unfreeze_blocks <= 0:
+            self.backbone.eval()
+        else:
+            # Keep frozen layers in eval, unfrozen in train
+            self.backbone.eval()
+            start_unfreeze = self.NUM_BLOCKS - self.unfreeze_blocks
+            for name, module in self.backbone.named_modules():
+                if 'blocks.' in name:
+                    parts = name.split('blocks.')[1].split('.')
+                    if parts[0].isdigit():
+                        block_idx = int(parts[0])
+                        if block_idx >= start_unfreeze and mode:
+                            module.train()
+            # fc_norm in train mode
+            if hasattr(self.backbone, 'fc_norm'):
+                self.backbone.fc_norm.train(mode)
         return self
 
 
 class EnsembleDentalModel(nn.Module):
     """
-    Ensemble of K-fold classifier heads on a single shared DINOv2 backbone.
+    Ensemble of K-fold full models on a single shared DINOv2 backbone.
     At inference, averages softmax probabilities from all fold heads.
     """
 
     BACKBONE_NAME = 'vit_base_patch14_reg4_dinov2'
     FEATURE_DIM = 768
 
-    def __init__(self, fold_head_paths, device='cpu'):
+    def __init__(self, fold_paths, device='cpu', img_size=224):
         super().__init__()
         self.device = device
 
-        # Single shared frozen backbone (with register tokens)
-        self.backbone = _load_dinov2(self.BACKBONE_NAME, pretrained=True)
+        # Single shared backbone
+        self.backbone = _load_dinov2(self.BACKBONE_NAME, pretrained=True,
+                                      img_size=img_size)
         for p in self.backbone.parameters():
             p.requires_grad = False
         self.backbone.eval()
@@ -186,11 +242,28 @@ class EnsembleDentalModel(nn.Module):
         # Load all fold heads
         fused_dim = self.FEATURE_DIM * 3
         self.heads = nn.ModuleList()
-        for path in fold_head_paths:
+        for path in fold_paths:
             head = DentalClassifierHead(input_dim=fused_dim)
             state = torch.load(path, map_location=device, weights_only=False)
             if 'head_state_dict' in state:
                 head.load_state_dict(state['head_state_dict'])
+            elif 'model_state_dict' in state:
+                # Full model checkpoint — extract classifier weights
+                full_sd = state['model_state_dict']
+                head_sd = {}
+                for k, v in full_sd.items():
+                    if k.startswith('classifier.'):
+                        head_sd[k.replace('classifier.', '')] = v
+                if head_sd:
+                    head.load_state_dict(head_sd)
+                # Also load fine-tuned backbone weights from first fold
+                if len(self.heads) == 0:
+                    backbone_sd = {}
+                    for k, v in full_sd.items():
+                        if k.startswith('backbone.'):
+                            backbone_sd[k.replace('backbone.', '')] = v
+                    if backbone_sd:
+                        self.backbone.load_state_dict(backbone_sd, strict=False)
             else:
                 head.load_state_dict(state)
             head.eval()
@@ -224,9 +297,11 @@ class EnsembleDentalModel(nn.Module):
         return results
 
 
-def build_model(pretrained=True, device='cpu'):
+def build_model(pretrained=True, device='cpu', img_size=224, unfreeze_blocks=0):
     """Build the DINOv2 multi-view model."""
-    model = DINOv2MultiViewModel(pretrained_backbone=pretrained)
+    model = DINOv2MultiViewModel(pretrained_backbone=pretrained,
+                                  img_size=img_size,
+                                  unfreeze_blocks=unfreeze_blocks)
     return model.to(device)
 
 
@@ -243,13 +318,19 @@ def load_model(checkpoint_path, device='cpu'):
 
     # Check for ensemble (multiple fold files)
     fold_files = sorted(glob.glob(os.path.join(checkpoint_dir, 'fold_*_head.pth')))
+
     if fold_files:
-        model = EnsembleDentalModel(fold_files, device=device)
+        # Detect img_size from checkpoint
+        sample_ckpt = torch.load(fold_files[0], map_location=device, weights_only=False)
+        img_size = sample_ckpt.get('config', {}).get('image_size', 224)
+        model = EnsembleDentalModel(fold_files, device=device, img_size=img_size)
         return model.to(device)
 
     # Single model fallback
     ckpt = torch.load(checkpoint_path, map_location=device, weights_only=False)
-    model = DINOv2MultiViewModel(pretrained_backbone=True)
+    img_size = ckpt.get('config', {}).get('image_size', 224)
+    model = DINOv2MultiViewModel(pretrained_backbone=True, img_size=img_size)
+
     if 'head_state_dict' in ckpt:
         model.classifier.load_state_dict(ckpt['head_state_dict'])
     elif 'model_state_dict' in ckpt:
