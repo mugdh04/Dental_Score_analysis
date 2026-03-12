@@ -3,6 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🦷</text></svg>">
     <title>{% block title %}DentAI Analyzer{% endblock %}</title>
     
     <!-- Tailwind CSS CDN -->
@@ -50,48 +51,34 @@
         
         body {
             font-family: 'Inter', system-ui, sans-serif;
-        }
-
-        .gradient-bg {
-            background: linear-gradient(135deg, #0f766e 0%, #115e59 25%, #134e4a 50%, #0f766e 75%, #0d9488 100%);
-            background-size: 400% 400%;
-            animation: gradientShift 15s ease infinite;
-        }
-
-        @keyframes gradientShift {
-            0%, 100% { background-position: 0% 50%; }
-            50% { background-position: 100% 50%; }
+            background: #f8fafb;
         }
 
         .glass-card {
-            background: rgba(255, 255, 255, 0.95);
-            backdrop-filter: blur(20px);
-            border: 1px solid rgba(255, 255, 255, 0.2);
+            background: #ffffff;
+            border: 1px solid #e5e7eb;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04);
         }
 
         .glass-dark {
-            background: rgba(255, 255, 255, 0.08);
-            backdrop-filter: blur(20px);
-            border: 1px solid rgba(255, 255, 255, 0.15);
+            background: #f1f5f9;
+            border: 1px solid #e2e8f0;
         }
 
         .upload-zone {
             border: 2px dashed #99f6e4;
+            background: #f0fdfa;
             transition: all 0.3s ease;
         }
 
         .upload-zone:hover, .upload-zone.drag-over {
             border-color: #14b8a6;
-            background: rgba(20, 184, 166, 0.05);
+            background: #ccfbf1;
             transform: scale(1.01);
         }
 
         .score-ring {
             transform: rotate(-90deg);
-        }
-
-        .tooth-pattern {
-            background-image: url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M30 5c-4 0-7 2-8 5-1-2-4-3-6-2s-4 4-3 8c1 4 3 8 5 12 2 4 4 9 5 14 1 5 3 8 7 8s6-3 7-8c1-5 3-10 5-14 2-4 4-8 5-12 1-4 0-7-3-8s-5 0-6 2c-1-3-4-5-8-5z' fill='rgba(255,255,255,0.03)' /%3E%3C/svg%3E");
         }
 
         .fade-in {
@@ -108,8 +95,8 @@
         }
 
         @keyframes pulseGlow {
-            0%, 100% { box-shadow: 0 0 20px rgba(20, 184, 166, 0.3); }
-            50% { box-shadow: 0 0 40px rgba(20, 184, 166, 0.6); }
+            0%, 100% { box-shadow: 0 0 20px rgba(20, 184, 166, 0.2); }
+            50% { box-shadow: 0 0 40px rgba(20, 184, 166, 0.4); }
         }
 
         /* Custom scrollbar */
@@ -129,26 +116,26 @@
     </style>
     {% block extra_head %}{% endblock %}
 </head>
-<body class="min-h-full gradient-bg tooth-pattern">
+<body class="min-h-full bg-gradient-to-br from-gray-50 via-white to-dental-50">
     <!-- Navigation -->
-    <nav class="glass-dark sticky top-0 z-50 shadow-lg">
+    <nav class="bg-white sticky top-0 z-50 shadow-sm border-b border-gray-100">
         <div class="max-w-7xl mx-auto px-6 py-4">
             <div class="flex items-center justify-between">
                 <a href="{% url 'analysis:upload' %}" class="flex items-center gap-3 group">
-                    <div class="w-10 h-10 bg-dental-400 rounded-xl flex items-center justify-center shadow-lg group-hover:bg-dental-300 transition-colors">
-                        <i data-lucide="scan-line" class="w-5 h-5 text-dental-900"></i>
+                    <div class="w-10 h-10 bg-dental-500 rounded-xl flex items-center justify-center shadow-md group-hover:bg-dental-600 transition-colors">
+                        <i data-lucide="scan-line" class="w-5 h-5 text-white"></i>
                     </div>
                     <div>
-                        <h1 class="text-xl font-display font-bold text-white tracking-tight">DentAI</h1>
-                        <p class="text-[10px] text-dental-300 tracking-widest uppercase">Dental Index Analyzer</p>
+                        <h1 class="text-xl font-display font-bold text-gray-800 tracking-tight">DentAI</h1>
+                        <p class="text-[10px] text-dental-600 tracking-widest uppercase">Dental Index Analyzer</p>
                     </div>
                 </a>
                 <div class="flex items-center gap-4">
-                    <a href="{% url 'analysis:upload' %}" class="text-dental-200 hover:text-white text-sm font-medium transition-colors flex items-center gap-2">
+                    <a href="{% url 'analysis:upload' %}" class="text-dental-600 hover:text-dental-800 text-sm font-medium transition-colors flex items-center gap-2">
                         <i data-lucide="upload" class="w-4 h-4"></i>
                         New Analysis
                     </a>
-                    <a href="{% url 'analysis:lookup' %}" class="text-dental-200 hover:text-white text-sm font-medium transition-colors flex items-center gap-2">
+                    <a href="{% url 'analysis:lookup' %}" class="text-dental-600 hover:text-dental-800 text-sm font-medium transition-colors flex items-center gap-2">
                         <i data-lucide="search" class="w-4 h-4"></i>
                         Lookup
                     </a>
@@ -163,9 +150,9 @@
     </main>
 
     <!-- Footer -->
-    <footer class="glass-dark mt-12 border-t border-white/10">
+    <footer class="bg-white mt-12 border-t border-gray-200">
         <div class="max-w-7xl mx-auto px-6 py-6">
-            <div class="flex items-center justify-between text-dental-300 text-sm">
+            <div class="flex items-center justify-between text-gray-500 text-sm">
                 <p>&copy; 2024 DentAI Analyzer — AI-Powered Dental Index Prediction</p>
                 <p class="flex items-center gap-2">
                     <i data-lucide="shield-check" class="w-4 h-4"></i>

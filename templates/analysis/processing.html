@@ -5,26 +5,26 @@
 <div class="fade-in max-w-2xl mx-auto text-center" x-data="processingStatus()" x-init="startPolling()">
     <!-- Animated Dental Icon -->
     <div class="mb-8">
-        <div class="w-28 h-28 mx-auto relative pulse-glow rounded-full bg-dental-400/20 flex items-center justify-center">
-            <div class="absolute inset-0 rounded-full border-4 border-dental-400/30 animate-ping"></div>
-            <svg class="w-14 h-14 text-dental-300 animate-pulse" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+        <div class="w-28 h-28 mx-auto relative pulse-glow rounded-full bg-dental-50 flex items-center justify-center">
+            <div class="absolute inset-0 rounded-full border-4 border-dental-200 animate-ping"></div>
+            <svg class="w-14 h-14 text-dental-500 animate-pulse" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
                 <path d="M12 2C9 2 7 4 6 6c-1-1.5-3-2-4.5-1.5S-1 8 .5 11c1.5 3 3 7 4 10 1 3 2.5 5 5.5 5s4.5-2 5.5-5c1-3 2.5-7 4-10 1.5-3 1-5.5-.5-6.5S15 4.5 14 6c-1-2-3-4-6-4z" stroke-linecap="round" stroke-linejoin="round"/>
             </svg>
         </div>
     </div>
 
     <!-- Status Text -->
-    <h2 class="text-3xl font-display font-bold text-white mb-3">
+    <h2 class="text-3xl font-display font-bold text-gray-800 mb-3">
         <span x-show="status === 'processing'">Analyzing Dental Photographs</span>
         <span x-show="status === 'pending'">Preparing Analysis</span>
-        <span x-show="status === 'failed'" class="text-red-300">Analysis Failed</span>
+        <span x-show="status === 'failed'" class="text-red-500">Analysis Failed</span>
     </h2>
 
-    <p class="text-dental-200 mb-2" x-show="status !== 'failed'">
-        Patient: <span class="font-semibold text-white">{{ patient.patient_name }}</span>
+    <p class="text-gray-500 mb-2" x-show="status !== 'failed'">
+        Patient: <span class="font-semibold text-gray-800">{{ patient.patient_name }}</span>
     </p>
-    <p class="text-dental-300 text-sm mb-8" x-show="status !== 'failed'">
-        Your unique code: <span class="font-mono font-bold text-dental-200 text-lg bg-dental-900/50 px-3 py-1 rounded-lg">{{ patient.unique_code }}</span>
+    <p class="text-gray-400 text-sm mb-8" x-show="status !== 'failed'">
+        Your unique code: <span class="font-mono font-bold text-dental-700 text-lg bg-dental-50 px-3 py-1 rounded-lg">{{ patient.unique_code }}</span>
     </p>
 
     <!-- Error message -->
@@ -53,26 +53,26 @@
     </div>
 
     <!-- Rotating Dental Quotes -->
-    <div class="glass-dark rounded-2xl p-8 max-w-lg mx-auto" x-show="status !== 'failed'">
+    <div class="glass-card rounded-2xl p-8 max-w-lg mx-auto" x-show="status !== 'failed'">
         <div class="flex items-start gap-4">
-            <i data-lucide="message-circle" class="w-6 h-6 text-dental-400 flex-shrink-0 mt-1"></i>
+            <i data-lucide="message-circle" class="w-6 h-6 text-dental-500 flex-shrink-0 mt-1"></i>
             <div>
-                <p class="text-dental-100 text-lg italic leading-relaxed" 
+                <p class="text-gray-700 text-lg italic leading-relaxed" 
                    x-text="currentQuote"
                    x-transition:enter="transition ease-out duration-500"
                    x-transition:enter-start="opacity-0 transform translate-y-2"
                    x-transition:enter-end="opacity-100 transform translate-y-0">
                 </p>
-                <p class="text-dental-400 text-xs mt-3 uppercase tracking-wider">Dental Health Tip</p>
+                <p class="text-gray-400 text-xs mt-3 uppercase tracking-wider">Dental Health Tip</p>
             </div>
         </div>
     </div>
 
     <!-- Save Code Reminder -->
     <div class="mt-6 glass-dark rounded-xl p-4 max-w-md mx-auto" x-show="status !== 'failed'">
-        <p class="text-dental-200 text-sm flex items-center justify-center gap-2">
-            <i data-lucide="bookmark" class="w-4 h-4 text-dental-400"></i>
-            Save your code <span class="font-mono font-bold text-dental-100">{{ patient.unique_code }}</span> to look up results later
+        <p class="text-gray-600 text-sm flex items-center justify-center gap-2">
+            <i data-lucide="bookmark" class="w-4 h-4 text-dental-500"></i>
+            Save your code <span class="font-mono font-bold text-dental-700">{{ patient.unique_code }}</span> to look up results later
         </p>
     </div>
 </div>
