@@ -183,6 +183,13 @@ class DINOv2MultiViewModel(nn.Module):
         """Predict scores with softmax confidence (0-100%)."""
         self.eval()
         with torch.no_grad():
+            # Get device from model parameters
+            device = next(self.parameters()).device
+            # Ensure tensors are on the same device as the model
+            frontal = frontal.to(device)
+            left_lateral = left_lateral.to(device)
+            right_lateral = right_lateral.to(device)
+            
             outputs = self.forward(frontal, left_lateral, right_lateral)
 
         results = {}
@@ -231,10 +238,12 @@ class EnsembleDentalModel(nn.Module):
     def __init__(self, fold_paths, device='cpu', img_size=224):
         super().__init__()
         self.device = device
+        self.img_size = img_size
 
         # Single shared backbone
         self.backbone = _load_dinov2(self.BACKBONE_NAME, pretrained=True,
                                       img_size=img_size)
+        self.backbone = self.backbone.to(device)
         for p in self.backbone.parameters():
             p.requires_grad = False
         self.backbone.eval()
@@ -243,7 +252,7 @@ class EnsembleDentalModel(nn.Module):
         fused_dim = self.FEATURE_DIM * 3
         self.heads = nn.ModuleList()
         for path in fold_paths:
-            head = DentalClassifierHead(input_dim=fused_dim)
+            head = DentalClassifierHead(input_dim=fused_dim).to(device)
             state = torch.load(path, map_location=device, weights_only=False)
             if 'head_state_dict' in state:
                 head.load_state_dict(state['head_state_dict'])
@@ -273,6 +282,11 @@ class EnsembleDentalModel(nn.Module):
         """Ensemble prediction: average softmax from all fold heads."""
         self.eval()
         with torch.no_grad():
+            # Ensure tensors are on the same device as the model
+            frontal = frontal.to(self.device)
+            left_lateral = left_lateral.to(self.device)
+            right_lateral = right_lateral.to(self.device)
+            
             feat_f = self.backbone(frontal)
             feat_l = self.backbone(left_lateral)
             feat_r = self.backbone(right_lateral)
