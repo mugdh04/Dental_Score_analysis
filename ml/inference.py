@@ -71,7 +71,9 @@ def load_trained_model(checkpoint_path=None):
 
 def _predict_with_tta(model, frontal_pil, left_pil, right_pil, device):
     """Run TTA: average predictions over multiple augmented views."""
-    tta_transforms = get_tta_transforms()
+    # Get image size from model (either DINOv2MultiViewModel.img_size or EnsembleDentalModel)
+    img_size = getattr(model, 'img_size', 224)
+    tta_transforms = get_tta_transforms(image_size=img_size)
     all_probs = {k: [] for k in ['mgi', 'ohi', 'gei']}
 
     for tfm in tta_transforms:
@@ -96,8 +98,10 @@ def _predict_with_tta(model, frontal_pil, left_pil, right_pil, device):
     return predictions
 
 
-def _predict_standard(model, frontal_pil, left_pil, right_pil, device, transform):
+def _predict_standard(model, frontal_pil, left_pil, right_pil, device):
     """Standard single-pass prediction."""
+    img_size = getattr(model, 'img_size', 224)
+    transform = get_inference_transforms(image_size=img_size)
     f_t = transform(frontal_pil).unsqueeze(0).to(device)
     l_t = transform(left_pil).unsqueeze(0).to(device)
     r_t = transform(right_pil).unsqueeze(0).to(device)
@@ -150,8 +154,7 @@ def predict_from_images(frontal_path, left_path, right_path, checkpoint_path=Non
     if use_tta:
         predictions = _predict_with_tta(model, frontal_pil, left_pil, right_pil, device)
     else:
-        transform = get_inference_transforms()
-        predictions = _predict_standard(model, frontal_pil, left_pil, right_pil, device, transform)
+        predictions = _predict_standard(model, frontal_pil, left_pil, right_pil, device)
 
     return _attach_gradcam(predictions, model, frontal_pil, left_pil, right_pil, device)
 
@@ -169,7 +172,6 @@ def predict_from_pil_images(frontal_pil, left_pil, right_pil, checkpoint_path=No
     if use_tta:
         predictions = _predict_with_tta(model, frontal_pil, left_pil, right_pil, device)
     else:
-        transform = get_inference_transforms()
-        predictions = _predict_standard(model, frontal_pil, left_pil, right_pil, device, transform)
+        predictions = _predict_standard(model, frontal_pil, left_pil, right_pil, device)
 
     return _attach_gradcam(predictions, model, frontal_pil, left_pil, right_pil, device)
