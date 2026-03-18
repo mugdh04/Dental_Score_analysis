@@ -6,14 +6,37 @@ This project hosts a Django web app plus a multi-view deep learning model that p
 - `manage.py` / `dental_project/` — Django project
 - `analysis/` — App with upload/processing/results views
 - `ml/Train_Model.ipynb` — Training notebook (GPU-first, CPU fallback)
-- `ml/model.py` — Multi-view EfficientNet backbone with three ordinal heads
+- `ml/model.py` — Multi-view DINOv2 backbone with three classification heads
 - `ml/dataset.py` — CSV + image loader for Thesis_Data
-- `ml/losses.py` — CORAL ordinal loss
+- `ml/transforms.py` — DINOv2-compatible image transforms with heavy augmentation
+- `ml/inference.py` — Inference module with TTA and ensemble support
+- `ml/losses.py` — CORAL ordinal loss (alternative loss function)
 - `Thesis_Data/` — CSV + photographs (Frontal, Left_Lateral, Right_Lateral)
 
 ## Environment & Kernel
-- Python 3.12, venv located at `venv/` (or `.venv/`), registered as Jupyter kernel **“Dental Project (venv)”** (`dental_venv`).
+- Python 3.12+, venv located at `venv/` (or `.venv/`), registered as Jupyter kernel **"Dental Project (venv)"** (`dental_venv`).
 - Activate venv (PowerShell): `Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass ; .\venv\Scripts\activate`
+
+## GPU Setup (Required for Training)
+
+The model uses DINOv2 (ViT-B/14, 86M params) which is too large for practical CPU training. An NVIDIA GPU is required.
+
+**Step 1: Verify your GPU**
+```bash
+nvidia-smi
+```
+
+**Step 2: Install CUDA-enabled PyTorch** (replaces CPU-only build)
+```bash
+pip install torch torchvision --index-url https://download.pytorch.org/whl/cu126 --force-reinstall
+```
+
+**Step 3: Verify CUDA works**
+```bash
+python -c "import torch; print('CUDA:', torch.cuda.is_available())"
+```
+
+> **Note:** No WSL needed — PyTorch CUDA works natively on Windows with the NVIDIA driver.
 
 ## Running the Web App
 1) Activate venv (see above).
@@ -23,21 +46,24 @@ This project hosts a Django web app plus a multi-view deep learning model that p
 5) Open http://127.0.0.1:8000/ — upload the three images + patient name, submit, wait for processing, view scores and Grad-CAM overlays.
 
 ## Training the Model (Notebook)
-- Open `ml/Train_Model.ipynb` and select kernel **“Dental Project (venv)”**.
+- Open `ml/Train_Model.ipynb` and select kernel **"Dental Project (venv)"**.
 - Key config in the notebook `CONFIG` dict:
-  - `backbone_name`: default `efficientnet_b3` (strong, moderate size). You can switch to `tf_efficientnetv2_s` for a faster/more accurate backbone if GPU VRAM allows.
-  - `image_size`: default 300 (match backbone). For EfficientNetV2-S, use 300–384.
-  - `epochs`, `patience`, `unfreeze_epoch`, `backbone_lr_mult` — control schedule.
-  - `resume_from`: set a checkpoint path to continue training.
-- Training loop uses GPU if available (mixed precision via AMP); falls back to CPU automatically.
-- Checkpoints and history save to `ml/checkpoints/` (`best_model.pth`, `final_model.pth`, `training_history.json`).
+  - `image_size`: default 336 (= 14×24, DINOv2-compatible). Use 518 for maximum quality if VRAM allows.
+  - `n_folds`: default 3 (cross-validation folds).
+  - `warmup_epochs`: default 5 (head-only training with frozen backbone).
+  - `finetune_epochs`: default 25 (with last 4 transformer blocks unfrozen).
+  - `batch_size`: default 8 (fits 12 GB VRAM with 336px images).
+  - `patience`: default 8 (early stopping tolerance).
+  - `unfreeze_blocks`: default 4 (last 4 of 12 DINOv2 transformer blocks).
+- Training loop uses GPU with mixed precision (AMP); falls back to CPU if unavailable (not recommended).
+- Checkpoints and history save to `ml/checkpoints/` (`best_model.pth`, `fold_*_head.pth`, `training_history.json`).
 
-## Switching to EfficientNetV2
-The current backbone is EfficientNet-B3 (good accuracy/size balance). EfficientNetV2 (paper: arXiv:2104.00298) reports higher ImageNet accuracy with faster training. To try it:
-1) In `ml/Train_Model.ipynb`, set `backbone_name = 'tf_efficientnetv2_s'` (or `m`) in CONFIG.
-2) Adjust `image_size` to 300–384 for `v2_s`; ~420–480 for `v2_m` if VRAM allows.
-3) Keep `batch_size` small (e.g., 2–4) on modest GPUs; increase if memory permits.
-4) Train as usual; checkpoints will remain in `ml/checkpoints/`.
+## Backbone: DINOv2 (ViT-B/14)
+DINOv2 is a self-supervised Vision Transformer pre-trained on 142M images by Meta AI. It produces rich visual features that transfer effectively even with very small datasets like ours (201 samples).
+
+The training strategy:
+1. **Phase 1 (Warmup):** Freeze entire backbone, train only the classifier head.
+2. **Phase 2 (Fine-tuning):** Unfreeze last 4 transformer blocks with 10-50× lower learning rate than the head.
 
 ## Data Notes
 - CSV: `Thesis_Data/Thesis_Results.csv` contains labels; parser expects patterns `MGI-x`, `OHI-y`, `GEI-z`.
@@ -46,13 +72,16 @@ The current backbone is EfficientNet-B3 (good accuracy/size balance). EfficientN
 
 ## Inference in the Web App
 - The Django app loads the best checkpoint (`ml/checkpoints/best_model.pth`) during inference.
-- If no checkpoint exists, the app will not return scores; train first or place a trained checkpoint at that path.
+- If fold checkpoints exist (`fold_*_head.pth`), it uses ensemble averaging for better predictions.
+- If no checkpoint exists, the app will not return scores; train first.
 
 ## Troubleshooting
-- Slow training: lower `image_size` or switch backbone to `efficientnet_b0/b1`.
-- Out-of-memory on GPU: reduce `batch_size`, lower `image_size`, or use `efficientnetv2_s` with smaller size.
-- Class imbalance: handled via class weights + weighted sampler (already in notebook).
+- **Training appears stuck / infinite loop:** Most likely the CPU-only PyTorch is installed. Install CUDA PyTorch (see GPU Setup above).
+- **Out-of-memory on GPU:** Reduce `batch_size` (e.g., 4 or 2), lower `image_size` (e.g., 224).
+- **Slow training:** Ensure GPU is being used (`Device: cuda` printed at start). Lower `image_size` if needed.
+- **Class imbalance:** Handled via inverse-frequency class weights in the loss function.
+- **Windows multiprocessing errors:** `num_workers` is set to 0 by default to avoid Windows fork issues.
 
 ## References
-- EfficientNetV2 paper: https://arxiv.org/abs/2104.00298 (faster training, higher accuracy)
-- timm model zoo: https://huggingface.co/timm (EfficientNetV2 variants available)
+- DINOv2 paper: https://arxiv.org/abs/2304.07193 (self-supervised ViT pre-training)
+- timm model zoo: https://huggingface.co/timm (DINOv2 variants available)
