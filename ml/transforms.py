@@ -2,13 +2,14 @@
 Image transforms for dental photograph preprocessing.
 Uses DINOv2-compatible preprocessing (ImageNet normalization).
 Training transforms include heavy augmentation to combat small dataset (201 samples).
-Supports both 224px (fast) and 518px (DINOv2 native, best quality).
+Supports 224px (fast), 336px (balanced), and 518px (DINOv2 native, best quality).
 """
 
 from torchvision import transforms
 
-# DINOv2 native resolution is 518px; 224px is faster for quick experiments
-IMAGE_SIZE = 518
+# Default image size: 336 = 14 x 24 (divisible by DINOv2 patch-size 14)
+# Use 518 for DINOv2 native resolution if VRAM allows
+IMAGE_SIZE = 336
 IMAGENET_MEAN = [0.485, 0.456, 0.406]
 IMAGENET_STD = [0.229, 0.224, 0.225]
 

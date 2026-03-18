@@ -72,7 +72,7 @@ def load_trained_model(checkpoint_path=None):
 def _predict_with_tta(model, frontal_pil, left_pil, right_pil, device):
     """Run TTA: average predictions over multiple augmented views."""
     # Get image size from model (either DINOv2MultiViewModel.img_size or EnsembleDentalModel)
-    img_size = getattr(model, 'img_size', 224)
+    img_size = getattr(model, 'img_size', 336)
     tta_transforms = get_tta_transforms(image_size=img_size)
     all_probs = {k: [] for k in ['mgi', 'ohi', 'gei']}
 
@@ -100,7 +100,7 @@ def _predict_with_tta(model, frontal_pil, left_pil, right_pil, device):
 
 def _predict_standard(model, frontal_pil, left_pil, right_pil, device):
     """Standard single-pass prediction."""
-    img_size = getattr(model, 'img_size', 224)
+    img_size = getattr(model, 'img_size', 336)
     transform = get_inference_transforms(image_size=img_size)
     f_t = transform(frontal_pil).unsqueeze(0).to(device)
     l_t = transform(left_pil).unsqueeze(0).to(device)
