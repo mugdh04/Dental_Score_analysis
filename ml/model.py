@@ -41,7 +41,7 @@ def _interpolate_pos_embed(checkpoint_pos_embed, model_pos_embed):
     return patch_pos
 
 
-def _load_dinov2(model_name, pretrained=True, img_size=224):
+def _load_dinov2(model_name, pretrained=True, img_size=336):
     """Load DINOv2 backbone with key/shape fixes for timm 1.0.25."""
     model = timm.create_model(model_name, pretrained=False, num_classes=0,
                                global_pool='avg', img_size=img_size)
@@ -114,7 +114,7 @@ class DINOv2MultiViewModel(nn.Module):
     FEATURE_DIM = 768  # per-view feature dim from DINOv2-base
     NUM_BLOCKS = 12     # DINOv2-base has 12 transformer blocks
 
-    def __init__(self, dropout=0.4, pretrained_backbone=True, img_size=224,
+    def __init__(self, dropout=0.4, pretrained_backbone=True, img_size=336,
                  unfreeze_blocks=0):
         super().__init__()
         self.img_size = img_size
@@ -183,11 +183,13 @@ class DINOv2MultiViewModel(nn.Module):
         """Predict scores with softmax confidence (0-100%)."""
         self.eval()
         with torch.no_grad():
-            outputs = self.forward(frontal, left_lateral, right_lateral)
+            # Use AMP for faster GPU inference
+            with torch.amp.autocast('cuda', enabled=frontal.is_cuda):
+                outputs = self.forward(frontal, left_lateral, right_lateral)
 
         results = {}
         for key in ['mgi', 'ohi', 'gei']:
-            probs = torch.softmax(outputs[key], dim=1)
+            probs = torch.softmax(outputs[key].float(), dim=1)
             predicted = probs.argmax(dim=1).int()
             confidence = probs.max(dim=1).values * 100.0
             results[key] = {
@@ -228,9 +230,10 @@ class EnsembleDentalModel(nn.Module):
     BACKBONE_NAME = 'vit_base_patch14_reg4_dinov2'
     FEATURE_DIM = 768
 
-    def __init__(self, fold_paths, device='cpu', img_size=224):
+    def __init__(self, fold_paths, device='cpu', img_size=336):
         super().__init__()
         self.device = device
+        self.img_size = img_size  # needed by inference.py to pick correct transforms
 
         # Single shared backbone
         self.backbone = _load_dinov2(self.BACKBONE_NAME, pretrained=True,
@@ -273,31 +276,31 @@ class EnsembleDentalModel(nn.Module):
         """Ensemble prediction: average softmax from all fold heads."""
         self.eval()
         with torch.no_grad():
-            feat_f = self.backbone(frontal)
-            feat_l = self.backbone(left_lateral)
-            feat_r = self.backbone(right_lateral)
-            features = torch.cat([feat_f, feat_l, feat_r], dim=1)
+            with torch.amp.autocast('cuda', enabled=frontal.is_cuda):
+                feat_f = self.backbone(frontal)
+                feat_l = self.backbone(left_lateral)
+                feat_r = self.backbone(right_lateral)
+                features = torch.cat([feat_f, feat_l, feat_r], dim=1)
 
-        results = {}
-        for key in ['mgi', 'ohi', 'gei']:
-            all_probs = []
-            for head in self.heads:
-                with torch.no_grad():
-                    out = head(features)
-                all_probs.append(torch.softmax(out[key], dim=1))
+                results = {}
+                for key in ['mgi', 'ohi', 'gei']:
+                    all_probs = []
+                    for head in self.heads:
+                        out = head(features)
+                        all_probs.append(torch.softmax(out[key].float(), dim=1))
 
-            avg_probs = torch.stack(all_probs).mean(dim=0)
-            predicted = avg_probs.argmax(dim=1).int()
-            confidence = avg_probs.max(dim=1).values * 100.0
-            results[key] = {
-                'score': predicted,
-                'confidence': confidence,
-                'probs': avg_probs,
-            }
+                    avg_probs = torch.stack(all_probs).mean(dim=0)
+                    predicted = avg_probs.argmax(dim=1).int()
+                    confidence = avg_probs.max(dim=1).values * 100.0
+                    results[key] = {
+                        'score': predicted,
+                        'confidence': confidence,
+                        'probs': avg_probs,
+                    }
         return results
 
 
-def build_model(pretrained=True, device='cpu', img_size=224, unfreeze_blocks=0):
+def build_model(pretrained=True, device='cpu', img_size=336, unfreeze_blocks=0):
     """Build the DINOv2 multi-view model."""
     model = DINOv2MultiViewModel(pretrained_backbone=pretrained,
                                   img_size=img_size,
@@ -322,13 +325,13 @@ def load_model(checkpoint_path, device='cpu'):
     if fold_files:
         # Detect img_size from checkpoint
         sample_ckpt = torch.load(fold_files[0], map_location=device, weights_only=False)
-        img_size = sample_ckpt.get('config', {}).get('image_size', 224)
+        img_size = sample_ckpt.get('config', {}).get('image_size', 336)
         model = EnsembleDentalModel(fold_files, device=device, img_size=img_size)
         return model.to(device)
 
     # Single model fallback
     ckpt = torch.load(checkpoint_path, map_location=device, weights_only=False)
-    img_size = ckpt.get('config', {}).get('image_size', 224)
+    img_size = ckpt.get('config', {}).get('image_size', 336)
     model = DINOv2MultiViewModel(pretrained_backbone=True, img_size=img_size)
 
     if 'head_state_dict' in ckpt:
