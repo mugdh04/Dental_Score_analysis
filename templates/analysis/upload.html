@@ -14,12 +14,30 @@
             <span class="text-dental-600 font-semibold">OHI</span>, and 
             <span class="text-dental-600 font-semibold">GEI</span> scores.
         </p>
+        {% if user.is_role_patient %}
+        <p class="text-sm text-orange-700 bg-orange-50 border border-orange-200 rounded-xl px-4 py-3 mt-4 inline-block">
+            AI scores appear immediately after processing. Dentist approval is required before final clinical use.
+        </p>
+        {% endif %}
     </div>
 
     <!-- Upload Form Card -->
     <div class="glass-card rounded-3xl shadow-2xl p-8 md:p-10 max-w-4xl mx-auto">
         <form method="post" enctype="multipart/form-data" @submit="handleSubmit($event)">
             {% csrf_token %}
+
+            {% if form.patient_user.field.widget.input_type != 'hidden' %}
+            <div class="mb-8">
+                <label for="id_patient_user" class="block text-sm font-semibold text-gray-700 mb-2 flex items-center gap-2">
+                    <i data-lucide="users" class="w-4 h-4 text-dental-600"></i>
+                    Link to Patient Account
+                </label>
+                {{ form.patient_user }}
+                {% if form.patient_user.errors %}
+                <p class="mt-2 text-sm text-red-500">{{ form.patient_user.errors.0 }}</p>
+                {% endif %}
+            </div>
+            {% endif %}
 
             <!-- Patient Name -->
             <div class="mb-8">
