@@ -2,291 +2,159 @@
 {% block title %}Results — {{ patient.patient_name }} — DentAI{% endblock %}
 
 {% block content %}
-<div class="fade-in" x-data="{ showGradcam: false }">
-    <!-- Patient Header -->
-    <div class="glass-card rounded-3xl shadow-2xl p-8 mb-8 max-w-5xl mx-auto">
-        <div class="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+<div class="fade-in space-y-6" x-data="{ showGradcam: false }">
+    <div class="glass-card rounded-3xl p-6">
+        <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
             <div>
-                <div class="flex items-center gap-3 mb-2">
-                    <div class="w-10 h-10 bg-green-100 rounded-xl flex items-center justify-center">
-                        <i data-lucide="check-circle-2" class="w-5 h-5 text-green-600"></i>
-                    </div>
-                    <span class="bg-green-100 text-green-700 text-xs font-bold px-3 py-1 rounded-full uppercase tracking-wider">
-                        Analysis Complete
-                    </span>
-                </div>
-                <h2 class="text-3xl font-display font-bold text-gray-800 mt-2">{{ patient.patient_name }}</h2>
-                <p class="text-gray-400 text-sm mt-1 flex items-center gap-2">
-                    <i data-lucide="hash" class="w-3.5 h-3.5"></i>
-                    Patient Code: <span class="font-mono font-bold text-gray-600">{{ patient.unique_code }}</span>
-                    &nbsp;|&nbsp;
-                    <i data-lucide="calendar" class="w-3.5 h-3.5"></i>
-                    {{ patient.created_at|date:"F j, Y — g:i A" }}
-                </p>
+                <h2 class="text-3xl font-display font-bold text-gray-800">{{ patient.patient_name }}</h2>
+                <p class="text-sm text-gray-500 mt-1">Phone: <span class="font-mono text-gray-700">{{ patient.patient_user.phone_number|default:"-" }}</span></p>
+                <p class="text-sm text-gray-500 mt-1">Code: <span class="font-mono text-gray-700">{{ patient.unique_code }}</span> | {{ patient.created_at|date:"Y-m-d H:i" }}</p>
             </div>
             <div class="flex gap-3">
-                <button onclick="window.print()" 
-                        class="flex items-center gap-2 px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl text-sm font-medium transition-colors">
-                    <i data-lucide="printer" class="w-4 h-4"></i>
-                    Print
-                </button>
-                <a href="{% url 'analysis:upload' %}" 
-                   class="flex items-center gap-2 px-4 py-2 bg-dental-600 hover:bg-dental-700 text-white rounded-xl text-sm font-medium transition-colors">
-                    <i data-lucide="plus" class="w-4 h-4"></i>
-                    New Analysis
-                </a>
-            </div>
-        </div>
-    </div>
-
-    <!-- Score Cards -->
-    <div class="grid grid-cols-1 md:grid-cols-3 gap-6 max-w-5xl mx-auto mb-8">
-        <!-- MGI Score -->
-        <div class="glass-card rounded-3xl shadow-xl p-6 hover:shadow-2xl transition-shadow">
-            <div class="flex items-center justify-between mb-4">
-                <div>
-                    <h3 class="text-sm font-bold text-dental-600 uppercase tracking-wider">MGI</h3>
-                    <p class="text-xs text-gray-400 mt-0.5">Modified Gingival Index</p>
-                </div>
-                <div class="w-10 h-10 bg-dental-50 rounded-xl flex items-center justify-center">
-                    <i data-lucide="activity" class="w-5 h-5 text-dental-500"></i>
-                </div>
-            </div>
-
-            <!-- Score Ring -->
-            <div class="flex items-center gap-4 mb-4">
-                <div class="relative w-20 h-20">
-                    <svg class="w-20 h-20 score-ring" viewBox="0 0 36 36">
-                        <circle cx="18" cy="18" r="15.9" fill="none" stroke="#f3f4f6" stroke-width="3"/>
-                        <circle cx="18" cy="18" r="15.9" fill="none" 
-                                stroke="{% if patient.mgi_score <= 1 %}#10b981{% elif patient.mgi_score == 2 %}#f59e0b{% else %}#ef4444{% endif %}"
-                                stroke-width="3" stroke-linecap="round"
-                                stroke-dasharray="{{ patient.mgi_score|default:0 }}{% with max=4 %}, {% widthratio max 1 1 %}{% endwith %}"
-                                style="stroke-dasharray: {% widthratio patient.mgi_score|default:0 4 100 %} 100"/>
-                    </svg>
-                    <div class="absolute inset-0 flex items-center justify-center">
-                        <span class="text-2xl font-bold text-gray-800">{{ patient.mgi_score|default_if_none:"—" }}</span>
-                    </div>
-                </div>
-                <div>
-                    <p class="text-lg font-semibold text-gray-700">{{ patient.mgi_score|default_if_none:"—" }} / {{ mgi_max }}</p>
-                    {% if patient.mgi_confidence %}
-                    <p class="text-xs text-gray-400">Confidence: {{ patient.mgi_confidence|floatformat:0 }}%</p>
-                    {% endif %}
-                </div>
-            </div>
-
-            <!-- Description -->
-            <div class="bg-gray-50 rounded-xl p-3">
-                <p class="text-sm text-gray-600 leading-relaxed">{{ mgi_desc }}</p>
-            </div>
-
-            <!-- Severity Bar -->
-            <div class="mt-4">
-                <div class="flex justify-between text-xs text-gray-400 mb-1">
-                    <span>Healthy</span>
-                    <span>Severe</span>
-                </div>
-                <div class="w-full bg-gray-100 rounded-full h-2">
-                    <div class="h-2 rounded-full transition-all duration-1000 
-                                {% if patient.mgi_score <= 1 %}bg-green-400{% elif patient.mgi_score == 2 %}bg-yellow-400{% else %}bg-red-400{% endif %}"
-                         style="width: {% widthratio patient.mgi_score|default:0 4 100 %}%"></div>
-                </div>
+                <a href="{% url 'analysis:download_report_pdf' patient.pk %}" class="rounded-xl bg-dental-600 px-4 py-3 text-white font-semibold hover:bg-dental-700">Download PDF</a>
+                <a href="{% url 'analysis:upload' %}" class="rounded-xl border border-gray-300 px-4 py-3 text-gray-700 font-semibold hover:bg-gray-50">New Analysis</a>
             </div>
         </div>
 
-        <!-- OHI Score -->
-        <div class="glass-card rounded-3xl shadow-xl p-6 hover:shadow-2xl transition-shadow">
-            <div class="flex items-center justify-between mb-4">
-                <div>
-                    <h3 class="text-sm font-bold text-blue-600 uppercase tracking-wider">OHI</h3>
-                    <p class="text-xs text-gray-400 mt-0.5">Oral Hygiene Index</p>
-                </div>
-                <div class="w-10 h-10 bg-blue-50 rounded-xl flex items-center justify-center">
-                    <i data-lucide="layers" class="w-5 h-5 text-blue-500"></i>
-                </div>
-            </div>
-
-            <div class="flex items-center gap-4 mb-4">
-                <div class="relative w-20 h-20">
-                    <svg class="w-20 h-20 score-ring" viewBox="0 0 36 36">
-                        <circle cx="18" cy="18" r="15.9" fill="none" stroke="#f3f4f6" stroke-width="3"/>
-                        <circle cx="18" cy="18" r="15.9" fill="none" 
-                                stroke="{% if patient.ohi_score <= 1 %}#10b981{% elif patient.ohi_score == 2 %}#f59e0b{% else %}#ef4444{% endif %}"
-                                stroke-width="3" stroke-linecap="round"
-                                style="stroke-dasharray: {% widthratio patient.ohi_score|default:0 3 100 %} 100"/>
-                    </svg>
-                    <div class="absolute inset-0 flex items-center justify-center">
-                        <span class="text-2xl font-bold text-gray-800">{{ patient.ohi_score|default_if_none:"—" }}</span>
-                    </div>
-                </div>
-                <div>
-                    <p class="text-lg font-semibold text-gray-700">{{ patient.ohi_score|default_if_none:"—" }} / {{ ohi_max }}</p>
-                    {% if patient.ohi_confidence %}
-                    <p class="text-xs text-gray-400">Confidence: {{ patient.ohi_confidence|floatformat:0 }}%</p>
-                    {% endif %}
-                </div>
-            </div>
-
-            <div class="bg-gray-50 rounded-xl p-3">
-                <p class="text-sm text-gray-600 leading-relaxed">{{ ohi_desc }}</p>
-            </div>
-
-            <div class="mt-4">
-                <div class="flex justify-between text-xs text-gray-400 mb-1">
-                    <span>Good</span>
-                    <span>Very Poor</span>
-                </div>
-                <div class="w-full bg-gray-100 rounded-full h-2">
-                    <div class="h-2 rounded-full transition-all duration-1000 
-                                {% if patient.ohi_score <= 1 %}bg-green-400{% elif patient.ohi_score == 2 %}bg-yellow-400{% else %}bg-red-400{% endif %}"
-                         style="width: {% widthratio patient.ohi_score|default:0 3 100 %}%"></div>
-                </div>
-            </div>
+        <div class="mt-5 rounded-xl border px-4 py-3 text-sm {{ status_banner.bg }}">
+            {{ status_banner.text }}
         </div>
 
-        <!-- GEI Score -->
-        <div class="glass-card rounded-3xl shadow-xl p-6 hover:shadow-2xl transition-shadow">
-            <div class="flex items-center justify-between mb-4">
-                <div>
-                    <h3 class="text-sm font-bold text-purple-600 uppercase tracking-wider">GEI</h3>
-                    <p class="text-xs text-gray-400 mt-0.5">Gingival Enlargement Index</p>
-                </div>
-                <div class="w-10 h-10 bg-purple-50 rounded-xl flex items-center justify-center">
-                    <i data-lucide="maximize" class="w-5 h-5 text-purple-500"></i>
-                </div>
-            </div>
-
-            <div class="flex items-center gap-4 mb-4">
-                <div class="relative w-20 h-20">
-                    <svg class="w-20 h-20 score-ring" viewBox="0 0 36 36">
-                        <circle cx="18" cy="18" r="15.9" fill="none" stroke="#f3f4f6" stroke-width="3"/>
-                        <circle cx="18" cy="18" r="15.9" fill="none" 
-                                stroke="{% if patient.gei_score == 0 %}#10b981{% elif patient.gei_score == 1 %}#f59e0b{% else %}#ef4444{% endif %}"
-                                stroke-width="3" stroke-linecap="round"
-                                style="stroke-dasharray: {% widthratio patient.gei_score|default:0 2 100 %} 100"/>
-                    </svg>
-                    <div class="absolute inset-0 flex items-center justify-center">
-                        <span class="text-2xl font-bold text-gray-800">{{ patient.gei_score|default_if_none:"—" }}</span>
-                    </div>
-                </div>
-                <div>
-                    <p class="text-lg font-semibold text-gray-700">{{ patient.gei_score|default_if_none:"—" }} / {{ gei_max }}</p>
-                    {% if patient.gei_confidence %}
-                    <p class="text-xs text-gray-400">Confidence: {{ patient.gei_confidence|floatformat:0 }}%</p>
-                    {% endif %}
-                </div>
-            </div>
-
-            <div class="bg-gray-50 rounded-xl p-3">
-                <p class="text-sm text-gray-600 leading-relaxed">{{ gei_desc }}</p>
-            </div>
-
-            <div class="mt-4">
-                <div class="flex justify-between text-xs text-gray-400 mb-1">
-                    <span>No Enlargement</span>
-                    <span>Severe</span>
-                </div>
-                <div class="w-full bg-gray-100 rounded-full h-2">
-                    <div class="h-2 rounded-full transition-all duration-1000 
-                                {% if patient.gei_score == 0 %}bg-green-400{% elif patient.gei_score == 1 %}bg-yellow-400{% else %}bg-red-400{% endif %}"
-                         style="width: {% widthratio patient.gei_score|default:0 2 100 %}%"></div>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <!-- Uploaded Images & Grad-CAM Section -->
-    <div class="glass-card rounded-3xl shadow-2xl p-8 max-w-5xl mx-auto mb-8">
-        <div class="flex items-center justify-between mb-6">
-            <h3 class="text-xl font-display font-bold text-gray-800 flex items-center gap-3">
-                <i data-lucide="image" class="w-5 h-5 text-dental-500"></i>
-                Dental Photographs
-            </h3>
-            {% if patient.gradcam_frontal %}
-            <button @click="showGradcam = !showGradcam"
-                    class="flex items-center gap-2 px-4 py-2 bg-dental-50 hover:bg-dental-100 text-dental-700 rounded-xl text-sm font-medium transition-colors">
-                <i data-lucide="eye" class="w-4 h-4"></i>
-                <span x-text="showGradcam ? 'Hide Attention Maps' : 'Show Attention Maps'"></span>
-            </button>
-            {% endif %}
-        </div>
-
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
-            <!-- Frontal -->
-            <div class="text-center">
-                <p class="text-sm font-semibold text-gray-600 mb-2">Frontal View</p>
-                <div class="relative rounded-2xl overflow-hidden shadow-md">
-                    <img src="{{ patient.frontal_image.url }}" 
-                         class="w-full h-48 object-cover"
-                         x-show="!showGradcam"
-                         alt="Frontal view">
-                    {% if patient.gradcam_frontal %}
-                    <img src="{{ patient.gradcam_frontal.url }}" 
-                         class="w-full h-48 object-cover"
-                         x-show="showGradcam" x-cloak
-                         alt="Frontal Grad-CAM">
-                    {% endif %}
-                </div>
-            </div>
-
-            <!-- Left Lateral -->
-            <div class="text-center">
-                <p class="text-sm font-semibold text-gray-600 mb-2">Left Lateral View</p>
-                <div class="relative rounded-2xl overflow-hidden shadow-md">
-                    <img src="{{ patient.left_lateral_image.url }}" 
-                         class="w-full h-48 object-cover"
-                         x-show="!showGradcam"
-                         alt="Left lateral view">
-                    {% if patient.gradcam_left %}
-                    <img src="{{ patient.gradcam_left.url }}" 
-                         class="w-full h-48 object-cover"
-                         x-show="showGradcam" x-cloak
-                         alt="Left Grad-CAM">
-                    {% endif %}
-                </div>
-            </div>
-
-            <!-- Right Lateral -->
-            <div class="text-center">
-                <p class="text-sm font-semibold text-gray-600 mb-2">Right Lateral View</p>
-                <div class="relative rounded-2xl overflow-hidden shadow-md">
-                    <img src="{{ patient.right_lateral_image.url }}" 
-                         class="w-full h-48 object-cover"
-                         x-show="!showGradcam"
-                         alt="Right lateral view">
-                    {% if patient.gradcam_right %}
-                    <img src="{{ patient.gradcam_right.url }}" 
-                         class="w-full h-48 object-cover"
-                         x-show="showGradcam" x-cloak
-                         alt="Right Grad-CAM">
-                    {% endif %}
-                </div>
-            </div>
-        </div>
-
-        {% if patient.gradcam_frontal %}
-        <div class="mt-4 text-center" x-show="showGradcam" x-cloak>
-            <p class="text-xs text-gray-400 flex items-center justify-center gap-2">
-                <i data-lucide="info" class="w-3.5 h-3.5"></i>
-                Grad-CAM attention maps highlight regions the AI model focused on for its predictions.
-                Red/yellow = high attention, Blue = low attention.
-            </p>
+        {% if user.is_role_patient and is_unreviewed %}
+        <div class="mt-3 rounded-xl border border-orange-200 bg-orange-50 px-4 py-3 text-sm text-orange-800">
+            You are seeing AI-generated scores before dentist approval. These scores are preliminary and not final clinical advice.
         </div>
         {% endif %}
     </div>
 
-    <!-- Disclaimer -->
-    <div class="glass-card rounded-2xl p-6 max-w-5xl mx-auto">
-        <div class="flex items-start gap-3">
-            <i data-lucide="alert-circle" class="w-5 h-5 text-dental-600 flex-shrink-0 mt-0.5"></i>
-            <p class="text-gray-600 text-sm leading-relaxed">
-                <strong class="text-gray-800">Disclaimer:</strong> 
-                This analysis is generated by an AI model trained on clinical research data and is intended 
-                for research and educational purposes only. Results should be verified by a qualified dental 
-                professional. This tool does not replace clinical examination and diagnosis.
-            </p>
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-5">
+        <div class="glass-card rounded-2xl p-5">
+            <p class="text-xs uppercase tracking-wider text-gray-500">MGI</p>
+            <p class="text-3xl font-bold text-gray-800 mt-1">{{ patient.mgi_score|default_if_none:"-" }} / {{ mgi_max }}</p>
+            <p class="text-sm text-gray-600 mt-2">{{ mgi_desc }}</p>
+            {% if patient.mgi_confidence %}<p class="text-xs text-gray-400 mt-2">Confidence: {{ patient.mgi_confidence|floatformat:0 }}%</p>{% endif %}
+            {% if show_old_and_new and patient.has_dentist_revision %}
+            <p class="text-xs text-gray-500 mt-2">AI baseline: {{ patient.ai_mgi_score|default_if_none:"-" }}</p>
+            {% endif %}
         </div>
+        <div class="glass-card rounded-2xl p-5">
+            <p class="text-xs uppercase tracking-wider text-gray-500">OHI</p>
+            <p class="text-3xl font-bold text-gray-800 mt-1">{{ patient.ohi_score|default_if_none:"-" }} / {{ ohi_max }}</p>
+            <p class="text-sm text-gray-600 mt-2">{{ ohi_desc }}</p>
+            {% if patient.ohi_confidence %}<p class="text-xs text-gray-400 mt-2">Confidence: {{ patient.ohi_confidence|floatformat:0 }}%</p>{% endif %}
+            {% if show_old_and_new and patient.has_dentist_revision %}
+            <p class="text-xs text-gray-500 mt-2">AI baseline: {{ patient.ai_ohi_score|default_if_none:"-" }}</p>
+            {% endif %}
+        </div>
+        <div class="glass-card rounded-2xl p-5">
+            <p class="text-xs uppercase tracking-wider text-gray-500">GEI</p>
+            <p class="text-3xl font-bold text-gray-800 mt-1">{{ patient.gei_score|default_if_none:"-" }} / {{ gei_max }}</p>
+            <p class="text-sm text-gray-600 mt-2">{{ gei_desc }}</p>
+            {% if patient.gei_confidence %}<p class="text-xs text-gray-400 mt-2">Confidence: {{ patient.gei_confidence|floatformat:0 }}%</p>{% endif %}
+            {% if show_old_and_new and patient.has_dentist_revision %}
+            <p class="text-xs text-gray-500 mt-2">AI baseline: {{ patient.ai_gei_score|default_if_none:"-" }}</p>
+            {% endif %}
+        </div>
+    </div>
+
+    {% if can_review %}
+    <div class="glass-card rounded-3xl p-6">
+        <h3 class="text-xl font-semibold text-gray-800 mb-4">Dentist Review</h3>
+        <form method="post" action="{% url 'analysis:review_report' patient.pk %}" class="space-y-4">
+            {% csrf_token %}
+            <div>
+                <label class="block text-sm font-semibold text-gray-700 mb-2">Review Action</label>
+                <div class="space-y-2">{{ review_form.action }}</div>
+                {% if review_form.action.errors %}<p class="text-sm text-red-600 mt-1">{{ review_form.action.errors.0 }}</p>{% endif %}
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <div>
+                    <label class="block text-sm font-semibold text-gray-700 mb-1">MGI (0-4)</label>
+                    {{ review_form.mgi_score }}
+                    {% if review_form.mgi_score.errors %}<p class="text-sm text-red-600 mt-1">{{ review_form.mgi_score.errors.0 }}</p>{% endif %}
+                </div>
+                <div>
+                    <label class="block text-sm font-semibold text-gray-700 mb-1">OHI (0-3)</label>
+                    {{ review_form.ohi_score }}
+                    {% if review_form.ohi_score.errors %}<p class="text-sm text-red-600 mt-1">{{ review_form.ohi_score.errors.0 }}</p>{% endif %}
+                </div>
+                <div>
+                    <label class="block text-sm font-semibold text-gray-700 mb-1">GEI (0-2)</label>
+                    {{ review_form.gei_score }}
+                    {% if review_form.gei_score.errors %}<p class="text-sm text-red-600 mt-1">{{ review_form.gei_score.errors.0 }}</p>{% endif %}
+                </div>
+            </div>
+
+            <div>
+                <label class="block text-sm font-semibold text-gray-700 mb-1">Reason / Note</label>
+                {{ review_form.reason }}
+                {% if review_form.reason.errors %}<p class="text-sm text-red-600 mt-1">{{ review_form.reason.errors.0 }}</p>{% endif %}
+            </div>
+
+            <button type="submit" class="rounded-xl bg-dental-600 px-4 py-3 text-white font-semibold hover:bg-dental-700">Save Review</button>
+        </form>
+    </div>
+    {% endif %}
+
+    {% if show_revisions and revisions %}
+    <div class="glass-card rounded-3xl p-6 overflow-x-auto">
+        <h3 class="text-xl font-semibold text-gray-800 mb-4">Revision History</h3>
+        <table class="w-full text-sm">
+            <thead>
+                <tr class="text-left border-b border-gray-200">
+                    <th class="py-2">Date</th>
+                    <th class="py-2">Edited By</th>
+                    <th class="py-2">MGI</th>
+                    <th class="py-2">OHI</th>
+                    <th class="py-2">GEI</th>
+                    <th class="py-2">Reason</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for rev in revisions %}
+                <tr class="border-b border-gray-100">
+                    <td class="py-2">{{ rev.created_at|date:"Y-m-d H:i" }}</td>
+                    <td class="py-2">{{ rev.edited_by.display_name|default:"-" }}</td>
+                    <td class="py-2">{{ rev.old_mgi_score|default_if_none:"-" }} -> {{ rev.new_mgi_score|default_if_none:"-" }}</td>
+                    <td class="py-2">{{ rev.old_ohi_score|default_if_none:"-" }} -> {{ rev.new_ohi_score|default_if_none:"-" }}</td>
+                    <td class="py-2">{{ rev.old_gei_score|default_if_none:"-" }} -> {{ rev.new_gei_score|default_if_none:"-" }}</td>
+                    <td class="py-2">{{ rev.reason|default:"-" }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% endif %}
+
+    <div class="glass-card rounded-3xl p-6">
+        <div class="flex items-center justify-between mb-4">
+            <h3 class="text-lg font-semibold text-gray-800">Dental Photographs</h3>
+            {% if patient.gradcam_frontal %}
+            <button @click="showGradcam = !showGradcam" class="rounded-lg bg-dental-50 px-3 py-2 text-sm text-dental-700 hover:bg-dental-100">
+                <span x-text="showGradcam ? 'Hide Attention Maps' : 'Show Attention Maps'"></span>
+            </button>
+            {% endif %}
+        </div>
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div class="rounded-2xl overflow-hidden border border-gray-200">
+                <img src="{{ patient.frontal_image.url }}" class="w-full h-44 object-cover" x-show="!showGradcam" alt="Frontal">
+                {% if patient.gradcam_frontal %}<img src="{{ patient.gradcam_frontal.url }}" class="w-full h-44 object-cover" x-show="showGradcam" x-cloak alt="Frontal Grad-CAM">{% endif %}
+            </div>
+            <div class="rounded-2xl overflow-hidden border border-gray-200">
+                <img src="{{ patient.left_lateral_image.url }}" class="w-full h-44 object-cover" x-show="!showGradcam" alt="Left Lateral">
+                {% if patient.gradcam_left %}<img src="{{ patient.gradcam_left.url }}" class="w-full h-44 object-cover" x-show="showGradcam" x-cloak alt="Left Grad-CAM">{% endif %}
+            </div>
+            <div class="rounded-2xl overflow-hidden border border-gray-200">
+                <img src="{{ patient.right_lateral_image.url }}" class="w-full h-44 object-cover" x-show="!showGradcam" alt="Right Lateral">
+                {% if patient.gradcam_right %}<img src="{{ patient.gradcam_right.url }}" class="w-full h-44 object-cover" x-show="showGradcam" x-cloak alt="Right Grad-CAM">{% endif %}
+            </div>
+        </div>
+    </div>
+
+    <div class="glass-card rounded-2xl p-5 text-sm text-gray-600">
+        <strong class="text-gray-800">Disclaimer:</strong>
+        This report is AI-assisted and intended to support clinical workflow. Final interpretation and treatment planning must be performed by a qualified dentist.
     </div>
 </div>
 {% endblock %}

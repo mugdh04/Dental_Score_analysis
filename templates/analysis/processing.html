@@ -82,6 +82,8 @@
 <script>
 function processingStatus() {
     const quotes = {{ quotes|safe }};
+    const startTime = Date.now();
+    const maxWaitMs = 10 * 60 * 1000;
     
     return {
         status: '{{ patient.status }}',
@@ -90,10 +92,23 @@ function processingStatus() {
         currentQuote: quotes[0],
         quoteIndex: 0,
         errorMessage: '',
+        quoteTimerId: null,
+        pollTimerId: null,
+
+        stopTimers() {
+            if (this.quoteTimerId) {
+                clearInterval(this.quoteTimerId);
+                this.quoteTimerId = null;
+            }
+            if (this.pollTimerId) {
+                clearTimeout(this.pollTimerId);
+                this.pollTimerId = null;
+            }
+        },
 
         startPolling() {
             // Rotate quotes every 4 seconds
-            setInterval(() => {
+            this.quoteTimerId = setInterval(() => {
                 this.quoteIndex = (this.quoteIndex + 1) % quotes.length;
                 this.currentQuote = quotes[this.quoteIndex];
             }, 4000);
@@ -124,26 +139,40 @@ function processingStatus() {
 
         async pollStatus() {
             try {
-                const response = await fetch('{% url "analysis:check_status" pk=patient.pk %}');
+                if (Date.now() - startTime > maxWaitMs && this.status !== 'completed') {
+                    this.status = 'failed';
+                    this.errorMessage = 'Analysis is taking longer than expected. Please try again in a moment or contact support.';
+                    this.stopTimers();
+                    return;
+                }
+
+                const response = await fetch('{% url "analysis:check_status" pk=patient.pk %}', {
+                    cache: 'no-store',
+                    headers: {
+                        'Cache-Control': 'no-cache',
+                    }
+                });
                 const data = await response.json();
                 this.status = data.status;
 
                 if (data.status === 'completed') {
                     this.progress = 100;
                     this.progressText = 'Analysis complete!';
+                    this.stopTimers();
                     // Redirect to results after brief delay
                     setTimeout(() => {
                         window.location.href = '{% url "analysis:results" pk=patient.pk %}';
                     }, 1000);
                 } else if (data.status === 'failed') {
                     this.errorMessage = data.error || 'Unknown error occurred.';
+                    this.stopTimers();
                 } else {
                     // Keep polling every 2 seconds
-                    setTimeout(() => this.pollStatus(), 2000);
+                    this.pollTimerId = setTimeout(() => this.pollStatus(), 2000);
                 }
             } catch (err) {
                 // Retry on network error
-                setTimeout(() => this.pollStatus(), 3000);
+                this.pollTimerId = setTimeout(() => this.pollStatus(), 3000);
             }
         }
     };

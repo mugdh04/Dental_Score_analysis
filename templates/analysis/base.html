@@ -113,32 +113,201 @@
         ::-webkit-scrollbar-thumb:hover {
             background: rgba(20, 184, 166, 0.5);
         }
+
+        /* Footer Premium Styling */
+        footer {
+            background: linear-gradient(180deg, #ffffff 0%, #fafbfc 100%);
+            border-top: 1px solid rgba(20, 184, 166, 0.08);
+            box-shadow: 0 -1px 3px rgba(0, 0, 0, 0.02);
+        }
+
+        .footer-divider {
+            height: 1px;
+            background: linear-gradient(90deg, transparent, rgba(20, 184, 166, 0.15), transparent);
+        }
+
+        .footer-link {
+            color: #6b7280;
+            text-decoration: none;
+            transition: all 0.2s ease;
+            position: relative;
+        }
+
+        .footer-link:hover {
+            color: #14b8a6;
+        }
+
+        .footer-heading {
+            color: #1f2937;
+            font-weight: 600;
+            font-size: 0.75rem;
+            letter-spacing: 0.1em;
+            text-transform: uppercase;
+            margin-bottom: 1rem;
+        }
+
+        .footer-mission {
+            background: linear-gradient(135deg, rgba(20, 184, 166, 0.05) 0%, rgba(45, 212, 191, 0.02) 100%);
+            border-left: 3px solid #14b8a6;
+            padding: 1.5rem;
+            border-radius: 0.5rem;
+        }
+
+        /* Navbar Premium Styling */
+        nav {
+            background: linear-gradient(180deg, #ffffff 0%, #fafbfc 100%);
+            border-bottom: 1px solid rgba(20, 184, 166, 0.08);
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+        }
+
+        .nav-brand {
+            display: flex;
+            align-items: center;
+            gap: 0.9rem;
+            text-decoration: none;
+            transition: all 0.3s ease;
+        }
+
+        .nav-brand:hover .nav-brand-icon {
+            transform: scale(1.05);
+            box-shadow: 0 4px 12px rgba(20, 184, 166, 0.25);
+        }
+
+        .nav-brand-icon {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.3s ease;
+        }
+
+        .nav-divider {
+            width: 1px;
+            height: 24px;
+            background: linear-gradient(180deg, transparent, rgba(20, 184, 166, 0.2), transparent);
+        }
+
+        .nav-link {
+            color: #6b7280;
+            text-decoration: none;
+            padding: 0.65rem 0.95rem;
+            border-radius: 0.5rem;
+            transition: all 0.2s ease;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.6rem;
+            font-size: 0.95rem;
+            font-weight: 600;
+        }
+
+        .nav-link:hover {
+            color: #14b8a6;
+            background: rgba(20, 184, 166, 0.05);
+        }
+
+        .nav-link-active {
+            color: #14b8a6;
+            background: rgba(20, 184, 166, 0.08);
+        }
+
+        .nav-user-section {
+            display: flex;
+            align-items: center;
+            gap: 1.1rem;
+            padding-left: 1.1rem;
+            border-left: 1px solid rgba(20, 184, 166, 0.08);
+        }
+
+        .nav-user-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.55rem;
+            padding: 0.45rem 0.85rem;
+            background: rgba(20, 184, 166, 0.08);
+            border-radius: 9999px;
+            font-size: 0.82rem;
+            color: #0f766e;
+            font-weight: 600;
+        }
+
+        .nav-logout-btn {
+            color: #dc2626;
+            text-decoration: none;
+            padding: 0.45rem 0.85rem;
+            border-radius: 0.5rem;
+            transition: all 0.2s ease;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.45rem;
+            font-size: 0.82rem;
+            font-weight: 600;
+        }
+
+        .nav-logout-btn:hover {
+            color: #991b1b;
+            background: rgba(220, 38, 38, 0.08);
+        }
     </style>
     {% block extra_head %}{% endblock %}
 </head>
 <body class="min-h-full bg-gradient-to-br from-gray-50 via-white to-dental-50">
     <!-- Navigation -->
-    <nav class="bg-white sticky top-0 z-50 shadow-sm border-b border-gray-100">
-        <div class="max-w-7xl mx-auto px-6 py-4">
+    <nav class="sticky top-0 z-50">
+        <div class="max-w-7xl mx-auto px-6 py-4 lg:py-5">
             <div class="flex items-center justify-between">
-                <a href="{% url 'analysis:upload' %}" class="flex items-center gap-3 group">
-                    <div class="w-10 h-10 bg-dental-500 rounded-xl flex items-center justify-center shadow-md group-hover:bg-dental-600 transition-colors">
+                <!-- Brand -->
+                <a href="{% url 'analysis:upload' %}" class="nav-brand">
+                    <div class="nav-brand-icon w-11 h-11 bg-gradient-to-br from-dental-500 to-dental-600 rounded-xl flex items-center justify-center">
                         <i data-lucide="scan-line" class="w-5 h-5 text-white"></i>
                     </div>
                     <div>
-                        <h1 class="text-xl font-display font-bold text-gray-800 tracking-tight">DentAI</h1>
-                        <p class="text-[10px] text-dental-600 tracking-widest uppercase">Dental Index Analyzer</p>
+                        <p class="text-lg font-display font-bold text-gray-800 leading-none">DentAI</p>
                     </div>
                 </a>
-                <div class="flex items-center gap-4">
-                    <a href="{% url 'analysis:upload' %}" class="text-dental-600 hover:text-dental-800 text-sm font-medium transition-colors flex items-center gap-2">
-                        <i data-lucide="upload" class="w-4 h-4"></i>
-                        New Analysis
+
+                <!-- Center Navigation -->
+                <div class="hidden md:flex items-center gap-2">
+                    {% if user.is_authenticated %}
+                    <a href="{% url 'analysis:dashboard' %}" class="nav-link">
+                        <i data-lucide="layout-dashboard" class="w-[18px] h-[18px]"></i>
+                        <span>Dashboard</span>
                     </a>
-                    <a href="{% url 'analysis:lookup' %}" class="text-dental-600 hover:text-dental-800 text-sm font-medium transition-colors flex items-center gap-2">
-                        <i data-lucide="search" class="w-4 h-4"></i>
-                        Lookup
+                    <a href="{% url 'analysis:upload' %}" class="nav-link">
+                        <i data-lucide="upload" class="w-[18px] h-[18px]"></i>
+                        <span>Analyze</span>
                     </a>
+                    <a href="{% url 'analysis:lookup' %}" class="nav-link">
+                        <i data-lucide="search" class="w-[18px] h-[18px]"></i>
+                        <span>Reports</span>
+                    </a>
+                    {% endif %}
+                </div>
+
+                <!-- Right Section -->
+                <div class="flex items-center gap-5">
+                    <div id="portal-date" class="hidden lg:block text-sm text-gray-500 font-medium"></div>
+                    
+                    {% if user.is_authenticated %}
+                    <div class="nav-user-section">
+                        <div class="nav-user-badge">
+                            <i data-lucide="circle-user" class="w-4 h-4"></i>
+                            <span>{{ user.username|truncatewords:1 }}</span>
+                        </div>
+                        <form method="post" action="{% url 'analysis:logout' %}" class="inline">
+                            {% csrf_token %}
+                            <button type="submit" class="nav-logout-btn" title="Logout">
+                                <i data-lucide="log-out" class="w-4 h-4"></i>
+                                <span>Exit</span>
+                            </button>
+                        </form>
+                    </div>
+                    {% else %}
+                    <a href="{% url 'analysis:login' %}" class="nav-link font-semibold text-dental-600 hover:text-dental-700 bg-gradient-to-r from-dental-50 to-transparent">
+                        <i data-lucide="log-in" class="w-5 h-5"></i>
+                        <span>Sign In</span>
+                    </a>
+                    {% endif %}
                 </div>
             </div>
         </div>
@@ -150,14 +319,37 @@
     </main>
 
     <!-- Footer -->
-    <footer class="bg-white mt-12 border-t border-gray-200">
-        <div class="max-w-7xl mx-auto px-6 py-6">
-            <div class="flex items-center justify-between text-gray-500 text-sm">
-                <p>&copy; 2024 DentAI Analyzer — AI-Powered Dental Index Prediction</p>
-                <p class="flex items-center gap-2">
-                    <i data-lucide="shield-check" class="w-4 h-4"></i>
-                    Clinical Research Tool
-                </p>
+    <footer class="mt-20">
+        <div class="max-w-7xl mx-auto px-6 py-16">
+            <!-- Mission Statement Section -->
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-8 mb-12">
+                <div class="md:col-span-1">
+                    <div class="flex items-center gap-2 mb-4">
+                        <div class="w-8 h-8 bg-gradient-to-br from-dental-500 to-dental-600 rounded-lg flex items-center justify-center flex-shrink-0">
+                            <i data-lucide="activity" class="w-4 h-4 text-white"></i>
+                        </div>
+                        <span class="font-display font-bold text-lg text-gray-800">DentAI</span>
+                    </div>
+                    <p class="text-sm text-gray-600 leading-relaxed">Clinical dental intelligence powered by MRIIF. Enabling dentists and researchers with AI-driven insights.</p>
+                </div>
+
+                <div class="md:col-span-2 footer-mission">
+                    <p class="text-sm font-semibold text-dental-700 mb-2">Our Mission</p>
+                    <p class="text-sm text-gray-700 leading-relaxed">To advance oral health research through accessible, reliable AI-powered dental analysis tools that empower professionals.</p>
+                </div>
+            </div>
+
+            <!-- Divider -->
+            <div class="footer-divider mb-10"></div>
+
+            <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4 text-xs text-gray-600">
+                <div>
+                    <p class="font-semibold text-gray-700 mb-1">Powered by MRIIF</p>
+                    <p>&copy; 2026 DentAI Analyzer. All rights reserved.</p>
+                </div>
+                <div class="space-y-1 md:text-right">
+                    <p class="text-gray-600">Clinical Research Tool • AI-Driven Intelligence</p>
+                </div>
             </div>
         </div>
     </footer>
@@ -166,6 +358,15 @@
         // Initialize Lucide icons
         document.addEventListener('DOMContentLoaded', () => {
             lucide.createIcons();
+            const dt = document.getElementById('portal-date');
+            if (dt) {
+                const now = new Date();
+                dt.textContent = new Intl.DateTimeFormat('en-US', {
+                    year: 'numeric',
+                    month: 'short',
+                    day: '2-digit',
+                }).format(now);
+            }
         });
     </script>
     {% block extra_scripts %}{% endblock %}

@@ -2,15 +2,22 @@ import os
 import uuid
 import json
 import threading
+import random
+import string
 from pathlib import Path
 
-from django.shortcuts import render, redirect, get_object_or_404
-from django.http import JsonResponse
+from django.contrib import messages
+from django.contrib.auth.decorators import login_required
+from django.db import models as db_models
+from django.http import HttpResponse, JsonResponse
+from django.shortcuts import get_object_or_404, redirect, render
 from django.conf import settings
+from django.utils import timezone
+from django.views.decorators.cache import never_cache
 from PIL import Image
 
-from .models import PatientAnalysis
-from .forms import PatientUploadForm
+from .forms import DentistCreatePatientForm, PatientUploadForm, ReviewReportForm
+from .models import DentalUser, PatientAnalysis, ReportRevision
 
 
 # Dental hygiene quotes for the loading screen
@@ -33,24 +40,125 @@ DENTAL_QUOTES = [
 ]
 
 
+def _generate_username_from_name(name):
+    base = ''.join(ch.lower() for ch in name if ch.isalnum())[:10] or 'patient'
+    return f"{base[:6]}{random.randint(1000, 9999)}"
+
+
+def _normalize_phone(phone_number):
+    return ''.join(ch for ch in str(phone_number or '') if ch.isdigit())
+
+
+def _generate_password(length=10):
+    alphabet = string.ascii_letters + string.digits
+    return ''.join(random.choice(alphabet) for _ in range(length))
+
+
+def _can_access_report(user, report):
+    if not user.is_authenticated:
+        return False
+    if user.is_role_admin:
+        return True
+    if user.is_role_dentist:
+        return report.dentist_owner_id == user.id or report.created_by_id == user.id
+    return report.patient_user_id == user.id
+
+
+def _can_review_report(user, report):
+    if not user.is_authenticated:
+        return False
+    if user.is_role_admin:
+        return True
+    return user.is_role_dentist and report.dentist_owner_id == user.id
+
+
+def _get_status_banner(patient, viewer=None):
+    viewer_is_patient = bool(viewer and getattr(viewer, 'is_role_patient', False))
+
+    if patient.review_status == PatientAnalysis.REVIEW_UNREVIEWED:
+        return {
+            'bg': 'bg-orange-50 border-orange-700 text-orange-700',
+            'text': 'Yet to be approved by the dentist',
+        }
+    if patient.review_status == PatientAnalysis.REVIEW_APPROVED:
+        dentist_name = patient.reviewed_by.display_name if patient.reviewed_by else 'Dentist'
+        return {
+            'bg': 'bg-green-50 border-green-700 text-green-700',
+            'text': f'Approved by Dr. {dentist_name}',
+        }
+
+    dentist_name = patient.reviewed_by.display_name if patient.reviewed_by else 'Dentist'
+    rejected_text = f'Reviewed by Dr. {dentist_name}' if viewer_is_patient else f'Report by Dr. {dentist_name}'
+    return {
+        'bg': 'bg-green-50 border-green-700 text-green-700',
+        'text': rejected_text,
+    }
+
+
+def _dashboard_redirect_for_user(user):
+    if user.is_role_admin:
+        return 'analysis:admin_dashboard'
+    if user.is_role_dentist:
+        return 'analysis:dentist_dashboard'
+    return 'analysis:patient_dashboard'
+
+
+def home_view(request):
+    if not request.user.is_authenticated:
+        return redirect('analysis:login')
+    return redirect(_dashboard_redirect_for_user(request.user))
+
+
+@login_required
 def upload_view(request):
     """Main upload page where users submit dental photographs."""
+    if not (request.user.is_role_admin or request.user.is_role_dentist or request.user.is_role_patient):
+        messages.error(request, 'Your account role is not allowed to upload reports.')
+        return redirect('analysis:login')
+
     if request.method == 'POST':
-        form = PatientUploadForm(request.POST, request.FILES)
+        post_data = request.POST.copy()
+        if request.user.is_role_patient:
+            post_data['patient_name'] = request.user.display_name
+        form = PatientUploadForm(post_data, request.FILES, actor=request.user)
         if form.is_valid():
-            patient = form.save()
+            patient = form.save(commit=False)
+            selected_patient = form.cleaned_data.get('patient_user')
+
+            patient.created_by = request.user
+            if request.user.is_role_patient:
+                patient.patient_user = request.user
+                patient.dentist_owner = request.user.dentist_owner
+                patient.patient_name = request.user.display_name
+            elif selected_patient:
+                patient.patient_user = selected_patient
+                patient.dentist_owner = selected_patient.dentist_owner or (request.user if request.user.is_role_dentist else None)
+                patient.patient_name = selected_patient.display_name
+            else:
+                patient.dentist_owner = request.user if request.user.is_role_dentist else None
+
+            patient.review_status = PatientAnalysis.REVIEW_UNREVIEWED
+            patient.reviewed_by = None
+            patient.reviewed_at = None
             # Start background processing
+            patient.save()
             _start_analysis(patient)
             return redirect('analysis:processing', pk=patient.pk)
     else:
-        form = PatientUploadForm()
+        initial = {}
+        if request.user.is_role_patient:
+            initial['patient_name'] = request.user.display_name
+        form = PatientUploadForm(actor=request.user, initial=initial)
 
     return render(request, 'analysis/upload.html', {'form': form})
 
 
+@login_required
 def processing_view(request, pk):
     """Loading screen with dental quotes while analysis runs."""
     patient = get_object_or_404(PatientAnalysis, pk=pk)
+    if not _can_access_report(request.user, patient):
+        return HttpResponse('Access denied.', status=403)
     
     # If already complete, redirect to results
     if patient.status == 'completed':
@@ -62,9 +170,17 @@ def processing_view(request, pk):
     })
 
 
+@login_required
 def results_view(request, pk):
     """Display analysis results with scores and Grad-CAM overlays."""
     patient = get_object_or_404(PatientAnalysis, pk=pk)
+    if not _can_access_report(request.user, patient):
+        return HttpResponse('Access denied.', status=403)
+
+    if patient.status in ('pending', 'processing'):
+        return redirect('analysis:processing', pk=pk)
+    if patient.status == 'failed':
+        return redirect('analysis:processing', pk=pk)
 
     # Score descriptions for display
     mgi_descriptions = {
@@ -88,6 +204,9 @@ def results_view(request, pk):
         2: 'Moderate to severe enlargement — enlargement of papilla and/or marginal gingiva',
     }
 
+    can_view_revisions = request.user.is_role_dentist or request.user.is_role_admin
+    revisions = patient.revisions.select_related('edited_by').all() if can_view_revisions else ReportRevision.objects.none()
+
     context = {
         'patient': patient,
         'mgi_desc': mgi_descriptions.get(patient.mgi_score, 'N/A'),
@@ -96,17 +215,35 @@ def results_view(request, pk):
         'mgi_max': 4,
         'ohi_max': 3,
         'gei_max': 2,
+        'status_banner': _get_status_banner(patient, viewer=request.user),
+        'is_unreviewed': patient.review_status == PatientAnalysis.REVIEW_UNREVIEWED,
+        'can_review': _can_review_report(request.user, patient),
+        'review_form': ReviewReportForm(patient=patient),
+        'show_old_and_new': request.user.is_role_dentist or request.user.is_role_admin,
+        'show_revisions': can_view_revisions,
+        'revisions': revisions,
     }
 
     return render(request, 'analysis/results.html', context)
 
 
+@never_cache
+@login_required
 def check_status(request, pk):
     """AJAX endpoint to check processing status."""
     patient = get_object_or_404(PatientAnalysis, pk=pk)
+    if not _can_access_report(request.user, patient):
+        return JsonResponse({'error': 'Access denied'}, status=403)
+
+    review_status_for_viewer = patient.review_status
+    if request.user.is_role_patient and patient.review_status == PatientAnalysis.REVIEW_REJECTED:
+        review_status_for_viewer = PatientAnalysis.REVIEW_APPROVED
+
     data = {
         'status': patient.status,
         'unique_code': patient.unique_code,
+        'review_status': review_status_for_viewer,
+        'status_banner_text': _get_status_banner(patient, viewer=request.user)['text'],
     }
     if patient.status == 'completed':
         data['results'] = {
@@ -119,8 +256,9 @@ def check_status(request, pk):
     return JsonResponse(data)
 
 
+@login_required
 def lookup_view(request):
-    """Look up patient results by unique code."""
+    """Authenticated lookup for users with access to a report."""
     patient = None
     error = None
 
@@ -129,6 +267,8 @@ def lookup_view(request):
         if code:
             try:
                 patient = PatientAnalysis.objects.get(unique_code=code)
+                if not _can_access_report(request.user, patient):
+                    raise PatientAnalysis.DoesNotExist
                 if patient.status == 'completed':
                     return redirect('analysis:results', pk=patient.pk)
                 elif patient.status in ('pending', 'processing'):
@@ -136,9 +276,455 @@ def lookup_view(request):
                 else:
                     error = f'Analysis failed: {patient.error_message}'
             except PatientAnalysis.DoesNotExist:
-                error = 'No patient found with that code. Please check and try again.'
+                error = 'No accessible patient found with that code.'
 
     return render(request, 'analysis/lookup.html', {'patient': patient, 'error': error})
+
+
+@login_required
+def dashboard_view(request):
+    return redirect(_dashboard_redirect_for_user(request.user))
+
+
+@login_required
+def admin_dashboard_view(request):
+    if not request.user.is_role_admin:
+        return HttpResponse('Access denied.', status=403)
+
+    reports = PatientAnalysis.objects.select_related('dentist_owner', 'patient_user', 'reviewed_by').all()[:120]
+    context = {
+        'reports': reports,
+        'users_total': DentalUser.objects.count(),
+        'dentists_total': DentalUser.objects.filter(role=DentalUser.ROLE_DENTIST).count(),
+        'patients_total': DentalUser.objects.filter(role=DentalUser.ROLE_PATIENT).count(),
+    }
+    return render(request, 'analysis/admin_dashboard.html', context)
+
+
+@login_required
+def dentist_dashboard_view(request):
+    if not request.user.is_role_dentist and not request.user.is_role_admin:
+        return HttpResponse('Access denied.', status=403)
+
+    owner = request.user
+    if request.user.is_role_admin:
+        owner = None
+
+    base_qs = PatientAnalysis.objects.select_related('patient_user', 'dentist_owner', 'reviewed_by')
+    if owner:
+        base_qs = base_qs.filter(dentist_owner=owner)
+
+    unreviewed_reports = base_qs.filter(status='completed', review_status=PatientAnalysis.REVIEW_UNREVIEWED)
+    approved_reports = base_qs.filter(status='completed').filter(
+        db_models.Q(review_status=PatientAnalysis.REVIEW_APPROVED) | db_models.Q(revisions__isnull=False)
+    ).distinct()
+    rejected_reports = base_qs.filter(status='completed', review_status=PatientAnalysis.REVIEW_REJECTED)
+
+    context = {
+        'unreviewed_reports': unreviewed_reports,
+        'approved_reports': approved_reports,
+        'rejected_reports': rejected_reports,
+        'patient_form': DentistCreatePatientForm(),
+        'generated_patient_credentials': request.session.pop('generated_patient_credentials', None),
+    }
+    return render(request, 'analysis/dentist_dashboard.html', context)
+
+
+@login_required
+def patient_dashboard_view(request):
+    if not request.user.is_role_patient and not request.user.is_role_admin:
+        return HttpResponse('Access denied.', status=403)
+
+    reports = PatientAnalysis.objects.select_related('reviewed_by').filter(patient_user=request.user).order_by('-created_at')
+    if request.user.is_role_admin:
+        reports = PatientAnalysis.objects.select_related('reviewed_by').all().order_by('-created_at')
+    return render(request, 'analysis/patient_dashboard.html', {'reports': reports})
+
+
+@login_required
+def create_patient_account_view(request):
+    if not request.user.is_role_dentist and not request.user.is_role_admin:
+        return HttpResponse('Access denied.', status=403)
+
+    if request.method != 'POST':
+        return redirect('analysis:dentist_dashboard')
+
+    form = DentistCreatePatientForm(request.POST)
+    generated = None
+    if form.is_valid():
+        patient_name = form.cleaned_data['patient_name']
+        phone_number = _normalize_phone(form.cleaned_data['phone_number'])
+
+        if DentalUser.objects.filter(phone_number=phone_number).exists() or DentalUser.objects.filter(username=phone_number).exists():
+            messages.error(request, 'This phone number is already registered.')
+            return redirect('analysis:dentist_dashboard')
+
+        username = phone_number
+        password = _generate_password()
+
+        user = DentalUser.objects.create_user(
+            username=username,
+            password=password,
+            role=DentalUser.ROLE_PATIENT,
+            first_name=patient_name,
+            phone_number=phone_number,
+            dentist_owner=request.user if request.user.is_role_dentist else None,
+        )
+        generated = {
+            'username': username,
+            'password': password,
+            'patient_name': user.display_name,
+            'phone_number': phone_number,
+        }
+        messages.success(request, f"Patient account created for {user.display_name}.")
+    else:
+        messages.error(request, 'Could not create patient account. Please check the entered name.')
+
+    if generated:
+        request.session['generated_patient_credentials'] = generated
+    return redirect('analysis:dentist_dashboard')
+
+
+@login_required
+def review_report_view(request, pk):
+    patient = get_object_or_404(PatientAnalysis, pk=pk)
+    if not _can_review_report(request.user, patient):
+        return HttpResponse('Access denied.', status=403)
+    if patient.status != 'completed':
+        messages.error(request, 'Only completed AI reports can be reviewed.')
+        return redirect('analysis:processing', pk=pk)
+
+    if request.method != 'POST':
+        return redirect('analysis:results', pk=pk)
+
+    form = ReviewReportForm(request.POST, patient=patient)
+    if not form.is_valid():
+        messages.error(request, 'Please correct the review form errors.')
+        return render(request, 'analysis/results.html', {
+            'patient': patient,
+            'review_form': form,
+            'mgi_max': 4,
+            'ohi_max': 3,
+            'gei_max': 2,
+            'status_banner': _get_status_banner(patient, viewer=request.user),
+            'is_unreviewed': patient.review_status == PatientAnalysis.REVIEW_UNREVIEWED,
+            'can_review': True,
+            'show_old_and_new': True,
+            'show_revisions': True,
+            'mgi_desc': 'N/A',
+            'ohi_desc': 'N/A',
+            'gei_desc': 'N/A',
+        })
+
+    action = form.cleaned_data['action']
+    note = form.cleaned_data.get('reason', '').strip()
+    patient.reviewed_by = request.user
+    patient.reviewed_at = timezone.now()
+    patient.dentist_note = note
+
+    if action == ReviewReportForm.ACTION_APPROVE:
+        patient.review_status = PatientAnalysis.REVIEW_APPROVED
+    else:
+        ReportRevision.objects.create(
+            analysis=patient,
+            edited_by=request.user,
+            old_mgi_score=patient.mgi_score,
+            old_ohi_score=patient.ohi_score,
+            old_gei_score=patient.gei_score,
+            new_mgi_score=form.cleaned_data['mgi_score'],
+            new_ohi_score=form.cleaned_data['ohi_score'],
+            new_gei_score=form.cleaned_data['gei_score'],
+            reason=note,
+        )
+        patient.mgi_score = form.cleaned_data['mgi_score']
+        patient.ohi_score = form.cleaned_data['ohi_score']
+        patient.gei_score = form.cleaned_data['gei_score']
+        patient.review_status = PatientAnalysis.REVIEW_REJECTED
+
+    patient.save(update_fields=['mgi_score', 'ohi_score', 'gei_score', 'review_status', 'reviewed_by', 'reviewed_at', 'dentist_note', 'updated_at'])
+    messages.success(request, 'Report review has been saved successfully.')
+    return redirect('analysis:results', pk=pk)
+
+
+@login_required
+def download_report_pdf_view(request, pk):
+    patient = get_object_or_404(PatientAnalysis, pk=pk)
+    if not _can_access_report(request.user, patient):
+        return HttpResponse('Access denied.', status=403)
+
+    try:
+        from textwrap import wrap
+        from reportlab.lib import colors
+        from reportlab.lib.pagesizes import A4
+        from reportlab.pdfgen import canvas
+    except Exception:
+        return HttpResponse('PDF dependency is not installed. Add reportlab and retry.', status=500)
+
+    def _score_text(value):
+        return str(value) if value is not None else '-'
+
+    def _confidence_text(value):
+        if value is None:
+            return 'N/A'
+        return f"{float(value):.0f}%"
+
+    def _severity_label(metric, value):
+        if value is None:
+            return 'Pending'
+        if metric == 'MGI':
+            if value <= 1:
+                return 'Low'
+            if value <= 2:
+                return 'Moderate'
+            return 'High'
+        if metric == 'OHI':
+            if value <= 1:
+                return 'Good/Fair'
+            if value == 2:
+                return 'Poor'
+            return 'Very Poor'
+        if value == 0:
+            return 'None'
+        if value == 1:
+            return 'Mild'
+        return 'Moderate/Severe'
+
+    mgi_descriptions = {
+        0: 'Absence of inflammation',
+        1: 'Mild inflammation',
+        2: 'Moderate inflammation',
+        3: 'Severe inflammation with bleeding tendency',
+        4: 'Severe inflammation with spontaneous bleeding',
+    }
+    ohi_descriptions = {
+        0: 'Good oral hygiene',
+        1: 'Fair oral hygiene',
+        2: 'Poor oral hygiene',
+        3: 'Very poor oral hygiene',
+    }
+    gei_descriptions = {
+        0: 'No gingival enlargement',
+        1: 'Mild papillary enlargement',
+        2: 'Moderate to severe enlargement',
+    }
+
+    recommendations = []
+    if patient.review_status == PatientAnalysis.REVIEW_UNREVIEWED:
+        recommendations.append('Await dentist validation before making treatment decisions.')
+    if patient.mgi_score is not None and patient.mgi_score >= 2:
+        recommendations.append('Schedule periodontal evaluation for inflammation management.')
+    if patient.ohi_score is not None and patient.ohi_score >= 2:
+        recommendations.append('Reinforce oral hygiene protocol and plaque-control counseling.')
+    if patient.gei_score is not None and patient.gei_score >= 1:
+        recommendations.append('Assess gingival enlargement and review causative factors.')
+    recommendations.extend([
+        'Brush twice daily using soft bristles and fluoride toothpaste.',
+        'Use interdental cleaning once daily (floss or interdental brush).',
+        'Arrange follow-up review in 2 to 6 weeks based on clinical severity.',
+    ])
+    recommendations = recommendations[:6]
+
+    response = HttpResponse(content_type='application/pdf')
+    response['Content-Disposition'] = f'attachment; filename="report_{patient.unique_code}.pdf"'
+
+    c = canvas.Canvas(response, pagesize=A4)
+    width, height = A4
+    margin = 34
+    content_w = width - (2 * margin)
+    y = height - margin
+
+    # Header banner
+    header_h = 78
+    c.setFillColor(colors.HexColor('#0f766e'))
+    c.roundRect(margin, y - header_h, content_w, header_h, 10, stroke=0, fill=1)
+    c.setFillColor(colors.white)
+    c.setFont('Helvetica-Bold', 19)
+    c.drawString(margin + 16, y - 30, 'DentAI Clinical Oral Health Report')
+    c.setFont('Helvetica', 10)
+    c.drawString(margin + 16, y - 47, 'AI-assisted dental index assessment for clinical support')
+    c.drawRightString(width - margin - 16, y - 30, f'Code: {patient.unique_code}')
+    c.drawRightString(width - margin - 16, y - 47, timezone.localtime(patient.created_at).strftime('%d %b %Y %H:%M'))
+    y -= (header_h + 14)
+
+    # Patient and report metadata card
+    meta_h = 88
+    c.setFillColor(colors.HexColor('#f8fafc'))
+    c.setStrokeColor(colors.HexColor('#d1d5db'))
+    c.roundRect(margin, y - meta_h, content_w, meta_h, 8, stroke=1, fill=1)
+
+    patient_phone = patient.patient_user.phone_number if patient.patient_user else '-'
+    dentist_name = f"Dr. {patient.reviewed_by.display_name}" if patient.reviewed_by else 'Pending assignment'
+    status = _get_status_banner(patient, viewer=request.user)['text']
+
+    c.setFillColor(colors.HexColor('#111827'))
+    c.setFont('Helvetica-Bold', 11)
+    c.drawString(margin + 14, y - 22, 'Patient Information')
+    c.drawString(margin + (content_w / 2), y - 22, 'Clinical Workflow Status')
+    c.setFont('Helvetica', 9.6)
+    c.drawString(margin + 14, y - 39, f'Patient Name: {patient.patient_name}')
+    c.drawString(margin + 14, y - 54, f'Phone: {patient_phone}')
+    c.drawString(margin + 14, y - 69, f'Uploaded By: {patient.created_by.display_name if patient.created_by else "-"}')
+
+    c.drawString(margin + (content_w / 2), y - 39, f'Status: {status}')
+    c.drawString(margin + (content_w / 2), y - 54, f'Reviewed By: {dentist_name}')
+    c.drawString(
+        margin + (content_w / 2),
+        y - 69,
+        f'Review Time: {timezone.localtime(patient.reviewed_at).strftime("%d %b %Y %H:%M") if patient.reviewed_at else "Pending"}',
+    )
+    y -= (meta_h + 12)
+
+    # Score cards section
+    card_h = 108
+    card_gap = 10
+    card_w = (content_w - (2 * card_gap)) / 3
+
+    scores = [
+        ('MGI', patient.mgi_score, 4, patient.mgi_confidence, mgi_descriptions.get(patient.mgi_score, 'N/A')),
+        ('OHI', patient.ohi_score, 3, patient.ohi_confidence, ohi_descriptions.get(patient.ohi_score, 'N/A')),
+        ('GEI', patient.gei_score, 2, patient.gei_confidence, gei_descriptions.get(patient.gei_score, 'N/A')),
+    ]
+
+    for idx, (label, value, max_value, confidence, desc) in enumerate(scores):
+        x = margin + (idx * (card_w + card_gap))
+        c.setFillColor(colors.HexColor('#ffffff'))
+        c.setStrokeColor(colors.HexColor('#cbd5e1'))
+        c.roundRect(x, y - card_h, card_w, card_h, 8, stroke=1, fill=1)
+
+        c.setFillColor(colors.HexColor('#0f766e'))
+        c.setFont('Helvetica-Bold', 11)
+        c.drawString(x + 10, y - 18, label)
+
+        c.setFillColor(colors.HexColor('#111827'))
+        c.setFont('Helvetica-Bold', 20)
+        c.drawString(x + 10, y - 43, f"{_score_text(value)} / {max_value}")
+
+        c.setFont('Helvetica', 9)
+        c.setFillColor(colors.HexColor('#374151'))
+        c.drawString(x + 10, y - 59, f'Severity: {_severity_label(label, value)}')
+        c.drawString(x + 10, y - 73, f'Confidence: {_confidence_text(confidence)}')
+
+        desc_line = wrap(desc, 30)
+        c.setFillColor(colors.HexColor('#4b5563'))
+        c.setFont('Helvetica', 8.4)
+        if desc_line:
+            c.drawString(x + 10, y - 89, desc_line[0])
+            if len(desc_line) > 1:
+                c.drawString(x + 10, y - 101, desc_line[1])
+
+    y -= (card_h + 12)
+
+    # Interpretation summary
+    summary_h = 96
+    c.setFillColor(colors.HexColor('#ecfeff'))
+    c.setStrokeColor(colors.HexColor('#99f6e4'))
+    c.roundRect(margin, y - summary_h, content_w, summary_h, 8, stroke=1, fill=1)
+    c.setFillColor(colors.HexColor('#0f172a'))
+    c.setFont('Helvetica-Bold', 11)
+    c.drawString(margin + 14, y - 20, 'Clinical Interpretation Summary')
+
+    summary_lines = [
+        f"MGI indicates {mgi_descriptions.get(patient.mgi_score, 'insufficient data')}.",
+        f"OHI indicates {ohi_descriptions.get(patient.ohi_score, 'insufficient data')}.",
+        f"GEI indicates {gei_descriptions.get(patient.gei_score, 'insufficient data')}.",
+        'This AI-assisted report supports clinical decision-making and should be interpreted with examination findings.',
+    ]
+
+    c.setFont('Helvetica', 9.2)
+    c.setFillColor(colors.HexColor('#334155'))
+    text_y = y - 38
+    for line in summary_lines:
+        for segment in wrap(line, 110):
+            c.drawString(margin + 14, text_y, segment)
+            text_y -= 13
+
+    y -= (summary_h + 12)
+
+    # Recommendations and instructions section (two-column)
+    col_h = 152
+    col_gap = 10
+    col_w = (content_w - col_gap) / 2
+
+    c.setFillColor(colors.HexColor('#ffffff'))
+    c.setStrokeColor(colors.HexColor('#d1d5db'))
+    c.roundRect(margin, y - col_h, col_w, col_h, 8, stroke=1, fill=1)
+    c.roundRect(margin + col_w + col_gap, y - col_h, col_w, col_h, 8, stroke=1, fill=1)
+
+    c.setFillColor(colors.HexColor('#0f172a'))
+    c.setFont('Helvetica-Bold', 11)
+    c.drawString(margin + 12, y - 20, 'Recommended Follow-up Actions')
+    c.drawString(margin + col_w + col_gap + 12, y - 20, 'Patient Home-Care Instructions')
+
+    c.setFont('Helvetica', 8.8)
+    c.setFillColor(colors.HexColor('#334155'))
+    bullet_y = y - 38
+    for rec in recommendations:
+        lines = wrap(rec, 52)
+        c.drawString(margin + 14, bullet_y, f'- {lines[0]}')
+        bullet_y -= 12
+        for cont in lines[1:]:
+            c.drawString(margin + 23, bullet_y, cont)
+            bullet_y -= 12
+        bullet_y -= 2
+        if bullet_y < (y - col_h + 12):
+            break
+
+    instruction_lines = [
+        '1. Brush at least 2 minutes, twice daily.',
+        '2. Clean interdental spaces once daily.',
+        '3. Use alcohol-free antimicrobial mouth rinse.',
+        '4. Limit sugary snacks and acidic beverages.',
+        '5. Report bleeding, pain, or swelling early.',
+        '6. Keep regular dental appointments.',
+    ]
+
+    instruction_y = y - 38
+    for item in instruction_lines:
+        c.drawString(margin + col_w + col_gap + 14, instruction_y, item)
+        instruction_y -= 18
+
+    y -= (col_h + 12)
+
+    # Dentist note and audit box
+    review_h = 74
+    c.setFillColor(colors.HexColor('#f9fafb'))
+    c.setStrokeColor(colors.HexColor('#d1d5db'))
+    c.roundRect(margin, y - review_h, content_w, review_h, 8, stroke=1, fill=1)
+    c.setFillColor(colors.HexColor('#111827'))
+    c.setFont('Helvetica-Bold', 10.5)
+    c.drawString(margin + 12, y - 18, 'Dentist Review Note and Audit Trace')
+
+    note_text = patient.dentist_note.strip() if patient.dentist_note else 'No dentist note provided for this review cycle.'
+    note_lines = wrap(note_text, 116)[:2]
+    c.setFont('Helvetica', 8.9)
+    c.setFillColor(colors.HexColor('#374151'))
+    line_y = y - 35
+    for line in note_lines:
+        c.drawString(margin + 12, line_y, line)
+        line_y -= 13
+
+    c.drawRightString(width - margin - 12, y - 18, f'Revisions Recorded: {patient.revisions.count()}')
+    c.drawRightString(width - margin - 12, y - 32, f'Generated by DentAI v1.0')
+    y -= (review_h + 10)
+
+    # Footer disclaimer
+    foot_h = 46
+    c.setFillColor(colors.HexColor('#fefce8'))
+    c.setStrokeColor(colors.HexColor('#fde68a'))
+    c.roundRect(margin, y - foot_h, content_w, foot_h, 8, stroke=1, fill=1)
+    c.setFillColor(colors.HexColor('#713f12'))
+    c.setFont('Helvetica-Bold', 9.5)
+    c.drawString(margin + 12, y - 17, 'Clinical Disclaimer')
+    c.setFont('Helvetica', 8.4)
+    c.drawString(
+        margin + 12,
+        y - 31,
+        'This report is AI-assisted and not a standalone diagnosis. Final treatment decisions must be made by a licensed dentist.',
+    )
+
+    c.showPage()
+    c.save()
+    return response
 
 
 def _start_analysis(patient):
@@ -176,12 +762,24 @@ def _run_analysis(patient_pk):
         predictions = predict_from_images(frontal_path, left_path, right_path)
 
         # Save results
+        patient.ai_mgi_score = predictions['mgi']['score']
+        patient.ai_ohi_score = predictions['ohi']['score']
+        patient.ai_gei_score = predictions['gei']['score']
+
         patient.mgi_score = predictions['mgi']['score']
         patient.ohi_score = predictions['ohi']['score']
         patient.gei_score = predictions['gei']['score']
+
+        patient.ai_mgi_confidence = predictions['mgi']['confidence']
+        patient.ai_ohi_confidence = predictions['ohi']['confidence']
+        patient.ai_gei_confidence = predictions['gei']['confidence']
+
         patient.mgi_confidence = predictions['mgi']['confidence']
         patient.ohi_confidence = predictions['ohi']['confidence']
         patient.gei_confidence = predictions['gei']['confidence']
+        patient.review_status = PatientAnalysis.REVIEW_UNREVIEWED
+        patient.reviewed_by = None
+        patient.reviewed_at = None
 
         # Save Grad-CAM images if available
         if predictions.get('gradcam'):
