@@ -1,0 +1,92 @@
+{% extends "analysis/base.html" %}
+{% block title %}Dentist Dashboard - DentAI{% endblock %}
+
+{% block content %}
+<div class="fade-in space-y-8">
+    <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+        <div>
+            <h2 class="text-3xl font-display font-bold text-gray-800">Dentist Dashboard</h2>
+            <p class="text-gray-500">Review AI reports and manage your patient accounts.</p>
+        </div>
+        <a href="{% url 'analysis:upload' %}" class="rounded-xl bg-dental-600 px-4 py-3 text-white font-semibold hover:bg-dental-700">Upload New Report</a>
+    </div>
+
+    {% if messages %}
+    <div class="space-y-2">
+        {% for message in messages %}
+        <div class="rounded-xl border px-4 py-3 text-sm {% if message.tags == 'success' %}border-green-200 bg-green-50 text-green-800{% else %}border-red-200 bg-red-50 text-red-800{% endif %}">{{ message }}</div>
+        {% endfor %}
+    </div>
+    {% endif %}
+
+    {% if generated_patient_credentials %}
+    <div class="rounded-2xl border border-dental-300 bg-dental-50 p-5">
+        <h3 class="font-semibold text-dental-800 mb-2">Generated Patient Credentials</h3>
+        <p class="text-sm text-dental-700">Patient: {{ generated_patient_credentials.patient_name }}</p>
+        <p class="text-sm text-dental-700">Phone: <span class="font-mono">{{ generated_patient_credentials.phone_number }}</span></p>
+        <p class="text-sm text-dental-700">Login ID (phone): <span class="font-mono">{{ generated_patient_credentials.username }}</span></p>
+        <p class="text-sm text-dental-700">Password: <span class="font-mono">{{ generated_patient_credentials.password }}</span></p>
+    </div>
+    {% endif %}
+
+    <div class="glass-card rounded-3xl p-6">
+        <h3 class="text-xl font-semibold text-gray-800 mb-3">Generate Patient ID</h3>
+        <form method="post" action="{% url 'analysis:create_patient_account' %}" class="grid grid-cols-1 md:grid-cols-3 gap-3 items-end">
+            {% csrf_token %}
+            <div>
+                <label class="block text-sm font-semibold text-gray-700 mb-1">Patient Name</label>
+                {{ patient_form.patient_name }}
+            </div>
+            <div>
+                <label class="block text-sm font-semibold text-gray-700 mb-1">Phone Number</label>
+                {{ patient_form.phone_number }}
+            </div>
+            <button type="submit" class="rounded-xl bg-dental-600 px-4 py-3 text-white font-semibold hover:bg-dental-700">Generate Credentials</button>
+        </form>
+    </div>
+
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div class="glass-card rounded-3xl p-5">
+            <h3 class="text-lg font-semibold text-gray-800 mb-3">Unreviewed Reports</h3>
+            <div class="space-y-3">
+                {% for r in unreviewed_reports %}
+                <a href="{% url 'analysis:results' r.pk %}" class="block rounded-xl border border-orange-200 bg-orange-50 px-3 py-3">
+                    <p class="font-semibold text-gray-800">{{ r.patient_name }}</p>
+                    <p class="text-xs text-gray-600">{{ r.created_at|date:"Y-m-d H:i" }} | {{ r.unique_code }}</p>
+                </a>
+                {% empty %}
+                <p class="text-sm text-gray-500">No unreviewed reports.</p>
+                {% endfor %}
+            </div>
+        </div>
+
+        <div class="glass-card rounded-3xl p-5">
+            <h3 class="text-lg font-semibold text-gray-800 mb-3">Approved Reports</h3>
+            <div class="space-y-3">
+                {% for r in approved_reports %}
+                <a href="{% url 'analysis:results' r.pk %}" class="block rounded-xl border border-green-200 bg-green-50 px-3 py-3">
+                    <p class="font-semibold text-gray-800">{{ r.patient_name }}</p>
+                    <p class="text-xs text-gray-600">{{ r.created_at|date:"Y-m-d H:i" }} | {{ r.unique_code }}</p>
+                </a>
+                {% empty %}
+                <p class="text-sm text-gray-500">No approved reports.</p>
+                {% endfor %}
+            </div>
+        </div>
+
+        <div class="glass-card rounded-3xl p-5">
+            <h3 class="text-lg font-semibold text-gray-800 mb-3">Rejected Reports</h3>
+            <div class="space-y-3">
+                {% for r in rejected_reports %}
+                <a href="{% url 'analysis:results' r.pk %}" class="block rounded-xl border border-red-200 bg-red-50 px-3 py-3">
+                    <p class="font-semibold text-gray-800">{{ r.patient_name }}</p>
+                    <p class="text-xs text-gray-600">{{ r.created_at|date:"Y-m-d H:i" }} | {{ r.unique_code }}</p>
+                </a>
+                {% empty %}
+                <p class="text-sm text-gray-500">No rejected reports.</p>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,56 @@
+{% extends "analysis/base.html" %}
+{% block title %}Admin Dashboard - DentAI{% endblock %}
+
+{% block content %}
+<div class="fade-in space-y-6">
+    <div>
+        <h2 class="text-3xl font-display font-bold text-gray-800">Admin Dashboard</h2>
+        <p class="text-gray-500">Monitor all users, reports, and review activity.</p>
+    </div>
+
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div class="glass-card rounded-2xl p-5">
+            <p class="text-xs uppercase tracking-wider text-gray-500">Total Users</p>
+            <p class="text-3xl font-bold text-gray-800">{{ users_total }}</p>
+        </div>
+        <div class="glass-card rounded-2xl p-5">
+            <p class="text-xs uppercase tracking-wider text-gray-500">Dentists</p>
+            <p class="text-3xl font-bold text-gray-800">{{ dentists_total }}</p>
+        </div>
+        <div class="glass-card rounded-2xl p-5">
+            <p class="text-xs uppercase tracking-wider text-gray-500">Patients</p>
+            <p class="text-3xl font-bold text-gray-800">{{ patients_total }}</p>
+        </div>
+    </div>
+
+    <div class="glass-card rounded-3xl p-6 overflow-x-auto">
+        <h3 class="text-xl font-semibold text-gray-800 mb-4">Recent Activity</h3>
+        <table class="w-full text-sm">
+            <thead>
+                <tr class="text-left border-b border-gray-200">
+                    <th class="py-2">Code</th>
+                    <th class="py-2">Patient</th>
+                    <th class="py-2">Dentist</th>
+                    <th class="py-2">Status</th>
+                    <th class="py-2">Created</th>
+                    <th class="py-2">Action</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for r in reports %}
+                <tr class="border-b border-gray-100">
+                    <td class="py-2 font-mono">{{ r.unique_code }}</td>
+                    <td class="py-2">{{ r.patient_name }}</td>
+                    <td class="py-2">{{ r.dentist_owner.display_name|default:"-" }}</td>
+                    <td class="py-2">{{ r.review_status }}</td>
+                    <td class="py-2">{{ r.created_at|date:"Y-m-d H:i" }}</td>
+                    <td class="py-2"><a class="text-dental-700" href="{% url 'analysis:results' r.pk %}">Open</a></td>
+                </tr>
+                {% empty %}
+                <tr><td colspan="6" class="py-6 text-gray-500">No records available.</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}
