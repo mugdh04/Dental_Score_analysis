@@ -1,0 +1,53 @@
+{% extends "analysis/base.html" %}
+{% block title %}Patient Portal - DentAI{% endblock %}
+
+{% block content %}
+<div class="fade-in max-w-5xl mx-auto space-y-6">
+    <div class="glass-card rounded-3xl p-6">
+        <h2 class="text-3xl font-display font-bold text-gray-800">Patient Portal</h2>
+        <p class="text-gray-600 mt-2">Follow these steps: 1) Upload three photos, 2) Wait for dentist approval, 3) Download your report.</p>
+        <div class="mt-4">
+            <a href="{% url 'analysis:upload' %}" class="inline-flex rounded-xl bg-dental-600 px-4 py-3 text-white font-semibold hover:bg-dental-700">Upload New Photos</a>
+        </div>
+    </div>
+
+    <div class="glass-card rounded-3xl p-6 overflow-x-auto">
+        <h3 class="text-xl font-semibold text-gray-800 mb-4">My Reports</h3>
+        <table class="w-full text-sm">
+            <thead>
+                <tr class="text-left border-b border-gray-200">
+                    <th class="py-2">Date</th>
+                    <th class="py-2">Code</th>
+                    <th class="py-2">AI Status</th>
+                    <th class="py-2">Dentist Status</th>
+                    <th class="py-2">Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for r in reports %}
+                <tr class="border-b border-gray-100">
+                    <td class="py-2">{{ r.created_at|date:"Y-m-d H:i" }}</td>
+                    <td class="py-2 font-mono">{{ r.unique_code }}</td>
+                    <td class="py-2">{{ r.status }}</td>
+                    <td class="py-2">
+                        {% if r.review_status == 'unreviewed' %}
+                            Yet to be approved by the dentist
+                        {% elif r.reviewed_by %}
+                            Reviewed by Dr. {{ r.reviewed_by.display_name }}
+                        {% else %}
+                            Reviewed by dentist
+                        {% endif %}
+                    </td>
+                    <td class="py-2 space-x-3">
+                        <a class="text-dental-700" href="{% url 'analysis:results' r.pk %}">View</a>
+                        <a class="text-dental-700" href="{% url 'analysis:download_report_pdf' r.pk %}">Download PDF</a>
+                    </td>
+                </tr>
+                {% empty %}
+                <tr><td colspan="5" class="py-5 text-gray-500">No reports yet.</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}
