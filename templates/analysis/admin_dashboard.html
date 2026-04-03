@@ -23,6 +23,101 @@
         </div>
     </div>
 
+    <div class="glass-card rounded-3xl p-6">
+        <div class="flex items-center justify-between mb-4">
+            <h3 class="text-xl font-semibold text-gray-800">User Management</h3>
+            <p class="text-xs text-gray-500">Admins can create, remove, and reset passwords for all users.</p>
+        </div>
+
+        <form method="get" action="{% url 'analysis:admin_dashboard' %}" class="grid grid-cols-1 md:grid-cols-4 gap-3 mb-4">
+            <input type="text" name="q" value="{{ search_query }}" placeholder="Search username, name, phone, role" class="md:col-span-2 rounded-xl border border-gray-300 px-4 py-3 focus:border-dental-600 focus:outline-none">
+            <select name="role" class="rounded-xl border border-gray-300 px-4 py-3 focus:border-dental-600 focus:outline-none bg-white">
+                <option value="" {% if not role_filter %}selected{% endif %}>All roles</option>
+                <option value="admin" {% if role_filter == 'admin' %}selected{% endif %}>Admin</option>
+                <option value="dentist" {% if role_filter == 'dentist' %}selected{% endif %}>Dentist</option>
+                <option value="patient" {% if role_filter == 'patient' %}selected{% endif %}>Patient</option>
+            </select>
+            <button type="submit" class="rounded-xl bg-gray-800 px-4 py-3 text-white font-semibold hover:bg-gray-900">Apply Filter</button>
+        </form>
+
+        <form method="post" action="{% url 'analysis:admin_create_user' %}" class="grid grid-cols-1 md:grid-cols-3 gap-3 mb-6">
+            {% csrf_token %}
+            {{ admin_user_form.username }}
+            {{ admin_user_form.password }}
+            {{ admin_user_form.role }}
+            {{ admin_user_form.first_name }}
+            {{ admin_user_form.last_name }}
+            {{ admin_user_form.phone_number }}
+            <div class="md:col-span-2">{{ admin_user_form.dentist_owner }}</div>
+            <button type="submit" class="rounded-xl bg-dental-600 px-4 py-3 text-white font-semibold hover:bg-dental-700">Create User</button>
+        </form>
+
+        <div class="overflow-x-auto">
+            <table class="w-full text-sm">
+                <thead>
+                    <tr class="text-left border-b border-gray-200">
+                        <th class="py-2">Username</th>
+                        <th class="py-2">Name</th>
+                        <th class="py-2">Role</th>
+                        <th class="py-2">Phone</th>
+                        <th class="py-2">Dentist Owner</th>
+                        <th class="py-2">Password Hash</th>
+                        <th class="py-2">Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for u in users %}
+                    <tr class="border-b border-gray-100 align-top">
+                        <td class="py-2 font-medium text-gray-800">{{ u.username }}</td>
+                        <td class="py-2">{{ u.display_name }}</td>
+                        <td class="py-2">{{ u.role }}</td>
+                        <td class="py-2">{{ u.phone_number|default:"-" }}</td>
+                        <td class="py-2">{{ u.dentist_owner.display_name|default:"-" }}</td>
+                        <td class="py-2 font-mono text-xs text-gray-500">{{ u.password|truncatechars:26 }}</td>
+                        <td class="py-2">
+                            <div class="space-y-2 min-w-[260px]">
+                                <form method="post" action="{% url 'analysis:admin_set_user_password' u.id %}" class="flex gap-2">
+                                    {% csrf_token %}
+                                    <input type="password" name="new_password" placeholder="Set new password" class="w-full rounded-lg border border-gray-300 px-3 py-2 text-xs focus:border-dental-600 focus:outline-none" required>
+                                    <button type="submit" class="rounded-lg bg-dental-600 px-3 py-2 text-white text-xs font-semibold hover:bg-dental-700">Set</button>
+                                </form>
+
+                                <div class="flex gap-2">
+                                    <form method="post" action="{% url 'analysis:admin_reset_user_password' u.id %}">
+                                        {% csrf_token %}
+                                        <button type="submit" class="rounded-lg bg-amber-500 px-3 py-2 text-white text-xs font-semibold hover:bg-amber-600">Reset Temp</button>
+                                    </form>
+
+                                    <form method="post" action="{% url 'analysis:admin_delete_user' u.id %}" onsubmit="return confirm('Delete user {{ u.username }}? This cannot be undone.');">
+                                        {% csrf_token %}
+                                        <button type="submit" class="rounded-lg bg-red-600 px-3 py-2 text-white text-xs font-semibold hover:bg-red-700">Delete</button>
+                                    </form>
+                                </div>
+                            </div>
+                        </td>
+                    </tr>
+                    {% empty %}
+                    <tr><td colspan="7" class="py-6 text-gray-500">No users found.</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% if page_obj %}
+        <div class="flex items-center justify-between mt-4 text-sm text-gray-600">
+            <p>Showing page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}</p>
+            <div class="flex gap-2">
+                {% if page_obj.has_previous %}
+                    <a href="{% url 'analysis:admin_dashboard' %}?{% if query_string %}{{ query_string }}&{% endif %}page={{ page_obj.previous_page_number }}" class="rounded-lg border border-gray-300 px-3 py-1.5 hover:bg-gray-50">Previous</a>
+                {% endif %}
+                {% if page_obj.has_next %}
+                    <a href="{% url 'analysis:admin_dashboard' %}?{% if query_string %}{{ query_string }}&{% endif %}page={{ page_obj.next_page_number }}" class="rounded-lg border border-gray-300 px-3 py-1.5 hover:bg-gray-50">Next</a>
+                {% endif %}
+            </div>
+        </div>
+        {% endif %}
+        <p class="text-xs text-gray-500 mt-3">For security, existing passwords are stored as hashes; you can set a new password or reset a temporary one.</p>
+    </div>
+
     <div class="glass-card rounded-3xl p-6 overflow-x-auto">
         <h3 class="text-xl font-semibold text-gray-800 mb-4">Recent Activity</h3>
         <table class="w-full text-sm">

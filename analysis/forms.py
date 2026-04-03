@@ -187,3 +187,108 @@ class ReviewReportForm(forms.Form):
             if not cleaned.get('reason', '').strip():
                 self.add_error('reason', 'Please provide a reason for editing the AI report.')
         return cleaned
+
+
+class AdminCreateUserForm(forms.Form):
+    """Admin-only form to create platform users of any role."""
+
+    username = forms.CharField(
+        max_length=150,
+        widget=forms.TextInput(
+            attrs={
+                'class': 'w-full rounded-xl border border-gray-300 px-4 py-3 focus:border-dental-600 focus:outline-none',
+                'placeholder': 'Username',
+                'autocomplete': 'off',
+            }
+        ),
+    )
+    first_name = forms.CharField(
+        max_length=150,
+        required=False,
+        widget=forms.TextInput(
+            attrs={
+                'class': 'w-full rounded-xl border border-gray-300 px-4 py-3 focus:border-dental-600 focus:outline-none',
+                'placeholder': 'First name (optional)',
+            }
+        ),
+    )
+    last_name = forms.CharField(
+        max_length=150,
+        required=False,
+        widget=forms.TextInput(
+            attrs={
+                'class': 'w-full rounded-xl border border-gray-300 px-4 py-3 focus:border-dental-600 focus:outline-none',
+                'placeholder': 'Last name (optional)',
+            }
+        ),
+    )
+    role = forms.ChoiceField(
+        choices=DentalUser.ROLE_CHOICES,
+        widget=forms.Select(
+            attrs={
+                'class': 'w-full rounded-xl border border-gray-300 px-4 py-3 focus:border-dental-600 focus:outline-none bg-white',
+            }
+        ),
+    )
+    phone_number = forms.CharField(
+        max_length=20,
+        required=False,
+        widget=forms.TextInput(
+            attrs={
+                'class': 'w-full rounded-xl border border-gray-300 px-4 py-3 focus:border-dental-600 focus:outline-none',
+                'placeholder': 'Phone number (optional)',
+            }
+        ),
+    )
+    dentist_owner = forms.ModelChoiceField(
+        queryset=DentalUser.objects.filter(role=DentalUser.ROLE_DENTIST).order_by('username'),
+        required=False,
+        widget=forms.Select(
+            attrs={
+                'class': 'w-full rounded-xl border border-gray-300 px-4 py-3 focus:border-dental-600 focus:outline-none bg-white',
+            }
+        ),
+        help_text='For patient users, optionally assign a dentist owner.',
+    )
+    password = forms.CharField(
+        max_length=128,
+        widget=forms.PasswordInput(
+            attrs={
+                'class': 'w-full rounded-xl border border-gray-300 px-4 py-3 focus:border-dental-600 focus:outline-none',
+                'placeholder': 'Set initial password',
+                'autocomplete': 'new-password',
+            }
+        ),
+    )
+
+    def clean_username(self):
+        username = self.cleaned_data['username'].strip()
+        if DentalUser.objects.filter(username=username).exists():
+            raise forms.ValidationError('This username is already taken.')
+        return username
+
+    def clean_phone_number(self):
+        raw = self.cleaned_data.get('phone_number', '')
+        normalized = ''.join(ch for ch in raw if ch.isdigit())
+        if not normalized:
+            return ''
+        if len(normalized) < 8:
+            raise forms.ValidationError('Phone number must contain at least 8 digits.')
+        if DentalUser.objects.filter(phone_number=normalized).exists():
+            raise forms.ValidationError('This phone number is already registered.')
+        return normalized
+
+
+class AdminSetUserPasswordForm(forms.Form):
+    """Admin-only form for changing an existing user's password."""
+
+    new_password = forms.CharField(
+        max_length=128,
+        widget=forms.PasswordInput(
+            attrs={
+                'class': 'w-full rounded-xl border border-gray-300 px-3 py-2 focus:border-dental-600 focus:outline-none',
+                'placeholder': 'New password',
+                'autocomplete': 'new-password',
+            }
+        ),
+    )
