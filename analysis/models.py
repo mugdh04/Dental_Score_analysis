@@ -6,6 +6,13 @@ from django.conf import settings
 from django.contrib.auth.models import AbstractUser
 from django.db import models
 
+# -----------------------------------------------------------------------------
+# Change Note (2026-04-03)
+# Added plaque ratio/label fields to persist rule-based PI outputs separately
+# from plaque score/confidence so website and reporting can show interpretable
+# PI values without overloading confidence semantics.
+# -----------------------------------------------------------------------------
+
 
 def generate_unique_code():
     """Generate a 6-digit unique patient code."""
@@ -162,8 +169,12 @@ class PatientAnalysis(models.Model):
         blank=True,
         help_text='Plaque Level (Turesky-modified Quigley-Hein, 0-5)',
     )
+    plaque_ratio = models.FloatField(null=True, blank=True)
+    plaque_label = models.CharField(max_length=20, null=True, blank=True)
     plaque_confidence = models.FloatField(null=True, blank=True)
     ai_plaque_score = models.IntegerField(null=True, blank=True)
+    ai_plaque_ratio = models.FloatField(null=True, blank=True)
+    ai_plaque_label = models.CharField(max_length=20, null=True, blank=True)
     ai_plaque_confidence = models.FloatField(null=True, blank=True)
 
     # Grad-CAM heatmap images (generated during inference)

@@ -3,6 +3,12 @@ Django settings for dental_project project.
 Dental Index Prediction System - MGI, OHI, GEI
 """
 
+# -----------------------------------------------------------------------------
+# Change Note (2026-04-03)
+# Added configurable model-path settings and startup warm-up flags so model
+# loading can be controlled via environment variables without hardcoding paths.
+# -----------------------------------------------------------------------------
+
 import os
 from pathlib import Path
 
@@ -92,6 +98,19 @@ LOGOUT_REDIRECT_URL = '/login/'
 # ML Model paths
 ML_MODEL_DIR = BASE_DIR / 'ml' / 'checkpoints'
 THESIS_DATA_DIR = BASE_DIR / 'Thesis_Data'
+DEFAULT_MODEL_PATH = BASE_DIR / 'models' / 'multitask_model.pth'
+LEGACY_MODEL_PATH = ML_MODEL_DIR / 'best_model.pth'
+
+MODEL_PATH = os.environ.get('MODEL_PATH', str(DEFAULT_MODEL_PATH))
+if not os.path.isabs(MODEL_PATH):
+    MODEL_PATH = str((BASE_DIR / MODEL_PATH).resolve())
+
+if not os.path.exists(MODEL_PATH):
+    MODEL_PATH = str(LEGACY_MODEL_PATH)
+
+WARMUP_MODEL_ON_STARTUP = os.environ.get('WARMUP_MODEL_ON_STARTUP', '1').strip().lower() in {
+    '1', 'true', 'yes', 'on'
+}
 
 # Celery Configuration (using Django DB as broker for simplicity)
 CELERY_BROKER_URL = 'redis://localhost:6379/0'

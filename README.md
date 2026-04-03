@@ -1,87 +1,174 @@
-# Dental Project (Django + Multi-View Dental Index Model)
+# DentAI Oral Health Prediction System
 
-This project hosts a Django web app plus a multi-view deep learning model that predicts three dental indices (MGI 0–4, OHI 0–3, GEI 0–2) from three photographs (frontal, left lateral, right lateral). A Jupyter notebook provides the full training loop.
+![Python](https://img.shields.io/badge/Python-3.12-blue)
+![Django](https://img.shields.io/badge/Django-6.0-success)
+![PyTorch](https://img.shields.io/badge/PyTorch-2.x-ee4c2c)
+![CUDA](https://img.shields.io/badge/GPU-CUDA%20Required-green)
+![Status](https://img.shields.io/badge/Model-Single%20Active%20Checkpoint-informational)
 
-## Project Structure
-- `manage.py` / `dental_project/` — Django project
-- `analysis/` — App with upload/processing/results views
-- `ml/Train_Model.ipynb` — Training notebook (GPU-first, CPU fallback)
-- `ml/model.py` — Multi-view DINOv2 backbone with three classification heads
-- `ml/dataset.py` — CSV + image loader for Thesis_Data
-- `ml/transforms.py` — DINOv2-compatible image transforms with heavy augmentation
-- `ml/inference.py` — Inference module with TTA and ensemble support
-- `ml/losses.py` — CORAL ordinal loss (alternative loss function)
-- `Thesis_Data/` — CSV + photographs (Frontal, Left_Lateral, Right_Lateral)
+AI-assisted dental analysis platform that predicts oral health indices from three intraoral photos:
 
-## Environment & Kernel
-- Python 3.12+, venv located at `venv/` (or `.venv/`), registered as Jupyter kernel **"Dental Project (venv)"** (`dental_venv`).
-- Activate venv (PowerShell): `Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass ; .\venv\Scripts\activate`
+- MGI (Modified Gingival Index)
+- OHI (Oral Hygiene Index)
+- GEI (Gingival Enlargement Index)
+- PI (Plaque Index, rule-based)
 
-## GPU Setup (Required for Training)
+## System Flow
 
-The model uses DINOv2 (ViT-B/14, 86M params) which is too large for practical CPU training. An NVIDIA GPU is required.
+```mermaid
+flowchart LR
+    A[Upload 3 Photos\nFrontal + Left + Right] --> B[Background Processing]
+    B --> C[Model Inference\nMGI/OHI/GEI]
+    B --> D[Rule-Based PI]
+    C --> E[Save Scores + Confidence]
+    D --> E
+    E --> F[Results Page + Grad-CAM]
+    F --> G[Dentist Review Workflow]
+```
 
-**Step 1: Verify your GPU**
-```bash
+## Architecture Snapshot
+
+```mermaid
+graph TD
+    subgraph Web
+      V[analysis/views.py]
+      T[templates/analysis]
+    end
+
+    subgraph Runtime ML
+      I[ml/inference.py]
+      M[ml/model.py]
+      C[ml/checkpoints/best_model.pth]
+    end
+
+    subgraph New Training Stack
+      TD[training/dataset.py]
+      TM[training/model.py]
+      TL[training/loss.py]
+      TT[training/trainer.py]
+      TN[training/train_model.ipynb]
+      PP[preprocessing/*]
+      IP[inference/predict.py]
+    end
+
+    V --> I --> M --> C
+    TN --> TD
+    TN --> TM
+    TN --> TL
+    TN --> TT
+    TN --> PP
+    TN --> IP
+```
+
+## Active Model Policy
+
+Current runtime uses one checkpoint only:
+
+- Active model: [ml/checkpoints/best_model.pth](ml/checkpoints/best_model.pth)
+
+All older fold and training artifact checkpoints were removed to keep the codebase clean until next training run.
+
+## Quick Start
+
+### 1) Environment
+
+```powershell
+Set-ExecutionPolicy -Scope Process Bypass
+.\venv\Scripts\activate
+pip install -r requirements.txt
+pip install -r requirements_model.txt
+```
+
+### 2) Run App
+
+```powershell
+python manage.py migrate
+python manage.py runserver 8000
+```
+
+Open: http://127.0.0.1:8000/
+
+### 3) Train (GPU Required)
+
+Use either notebook (both are kept):
+
+- [ml/Train_Model.ipynb](ml/Train_Model.ipynb)
+- [training/train_model.ipynb](training/train_model.ipynb)
+
+The new training notebook enforces CUDA and stops immediately if GPU is unavailable.
+
+## Data Contract
+
+Primary label source:
+
+- [Thesis_Data/Thesis_Results.csv](Thesis_Data/Thesis_Results.csv)
+
+Image mapping convention:
+
+- Frontal: F{Sl No}
+- Left: L{Sl No}
+- Right: R{Sl No}
+
+Only complete triplets are used for training.
+
+## Feature Matrix
+
+| Capability | Status | Location |
+|---|---|---|
+| 3-view upload and async processing | Active | [analysis/views.py](analysis/views.py) |
+| MGI/OHI/GEI inference | Active | [ml/inference.py](ml/inference.py) |
+| PI persistence and display | Active | [analysis/models.py](analysis/models.py), [templates/analysis/results.html](templates/analysis/results.html) |
+| Startup model warm-up | Active | [analysis/apps.py](analysis/apps.py) |
+| New patch-based predictor module | Ready | [inference/predict.py](inference/predict.py) |
+| New training pipeline modules | Ready | [training](training) |
+
+## Interactive Ops Notes
+
+<details>
+<summary>Model Path Resolution</summary>
+
+Runtime resolution order:
+
+1. MODEL_PATH environment variable
+2. settings MODEL_PATH
+3. Fallback to [ml/checkpoints/best_model.pth](ml/checkpoints/best_model.pth)
+
+Configured in [dental_project/settings.py](dental_project/settings.py) and used by [ml/inference.py](ml/inference.py).
+
+</details>
+
+<details>
+<summary>GPU Validation Checklist</summary>
+
+```powershell
 nvidia-smi
+python -c "import torch; print(torch.cuda.is_available(), torch.version.cuda)"
 ```
 
-**Step 2: Install CUDA-enabled PyTorch** (replaces CPU-only build)
-```bash
-pip install torch torchvision --index-url https://download.pytorch.org/whl/cu126 --force-reinstall
+If CUDA is False, training notebook will fail fast by design.
+
+</details>
+
+<details>
+<summary>Troubleshooting</summary>
+
+- Model not loading:
+  - Verify [ml/checkpoints/best_model.pth](ml/checkpoints/best_model.pth) exists.
+- Slow inference:
+  - Confirm warm-up is enabled in [dental_project/settings.py](dental_project/settings.py).
+- Training OOM:
+  - Reduce batch size in [training/train_model.ipynb](training/train_model.ipynb).
+
+</details>
+
+## Repository Layout
+
+```text
+analysis/         Django app (views, models, forms, templates)
+dental_project/   Django project settings and routes
+ml/               Current runtime model and inference path
+preprocessing/    New image preprocessing stack (YOLO/SAM/patches)
+training/         New modular training stack + notebook
+inference/        New predictor + plaque algorithm
+Thesis_Data/      Labels and photos dataset
 ```
-
-**Step 3: Verify CUDA works**
-```bash
-python -c "import torch; print('CUDA:', torch.cuda.is_available())"
-```
-
-> **Note:** No WSL needed — PyTorch CUDA works natively on Windows with the NVIDIA driver.
-
-## Running the Web App
-1) Activate venv (see above).
-2) Install deps (already installed, but if needed): `pip install -r requirements.txt`
-3) Apply migrations: `python manage.py migrate`
-4) Run server: `python manage.py runserver 8000`
-5) Open http://127.0.0.1:8000/ — upload the three images + patient name, submit, wait for processing, view scores and Grad-CAM overlays.
-
-## Training the Model (Notebook)
-- Open `ml/Train_Model.ipynb` and select kernel **"Dental Project (venv)"**.
-- Key config in the notebook `CONFIG` dict:
-  - `image_size`: default 336 (= 14×24, DINOv2-compatible). Use 518 for maximum quality if VRAM allows.
-  - `n_folds`: default 3 (cross-validation folds).
-  - `warmup_epochs`: default 5 (head-only training with frozen backbone).
-  - `finetune_epochs`: default 25 (with last 4 transformer blocks unfrozen).
-  - `batch_size`: default 8 (fits 12 GB VRAM with 336px images).
-  - `patience`: default 8 (early stopping tolerance).
-  - `unfreeze_blocks`: default 4 (last 4 of 12 DINOv2 transformer blocks).
-- Training loop uses GPU with mixed precision (AMP); falls back to CPU if unavailable (not recommended).
-- Checkpoints and history save to `ml/checkpoints/` (`best_model.pth`, `fold_*_head.pth`, `training_history.json`).
-
-## Backbone: DINOv2 (ViT-B/14)
-DINOv2 is a self-supervised Vision Transformer pre-trained on 142M images by Meta AI. It produces rich visual features that transfer effectively even with very small datasets like ours (201 samples).
-
-The training strategy:
-1. **Phase 1 (Warmup):** Freeze entire backbone, train only the classifier head.
-2. **Phase 2 (Fine-tuning):** Unfreeze last 4 transformer blocks with 10-50× lower learning rate than the head.
-
-## Data Notes
-- CSV: `Thesis_Data/Thesis_Results.csv` contains labels; parser expects patterns `MGI-x`, `OHI-y`, `GEI-z`.
-- Images: place patient photos in `Thesis_Data/Thesis_Photographs/Frontal`, `Left_Lateral`, `Right_Lateral` with filenames `F<number>`, `L<number>`, `R<number>` (case-insensitive extensions .JPG/.jpg/.png/.jpeg).
-- Samples are included only when all three views exist.
-
-## Inference in the Web App
-- The Django app loads the best checkpoint (`ml/checkpoints/best_model.pth`) during inference.
-- If fold checkpoints exist (`fold_*_head.pth`), it uses ensemble averaging for better predictions.
-- If no checkpoint exists, the app will not return scores; train first.
-
-## Troubleshooting
-- **Training appears stuck / infinite loop:** Most likely the CPU-only PyTorch is installed. Install CUDA PyTorch (see GPU Setup above).
-- **Out-of-memory on GPU:** Reduce `batch_size` (e.g., 4 or 2), lower `image_size` (e.g., 224).
-- **Slow training:** Ensure GPU is being used (`Device: cuda` printed at start). Lower `image_size` if needed.
-- **Class imbalance:** Handled via inverse-frequency class weights in the loss function.
-- **Windows multiprocessing errors:** `num_workers` is set to 0 by default to avoid Windows fork issues.
-
-## References
-- DINOv2 paper: https://arxiv.org/abs/2304.07193 (self-supervised ViT pre-training)
-- timm model zoo: https://huggingface.co/timm (DINOv2 variants available)
