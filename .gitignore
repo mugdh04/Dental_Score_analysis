@@ -12,7 +12,11 @@ venv/
 # Django
 *.sqlite3
 *.log
+db.sqlite3.bak_20260319_150439
+login_ids
 
 # IDE/editor
 .vscode/
 *.code-workspace
+
+media/uploads/

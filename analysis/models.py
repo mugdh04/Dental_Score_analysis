@@ -154,6 +154,17 @@ class PatientAnalysis(models.Model):
     )
     reviewed_at = models.DateTimeField(null=True, blank=True)
     dentist_note = models.TextField(blank=True, default='')
+    clinical_recommendations = models.JSONField(blank=True, default=list)
+
+    # Additional plaque-related metrics (migration 0004)
+    plaque_score = models.IntegerField(
+        null=True,
+        blank=True,
+        help_text='Plaque Level (Turesky-modified Quigley-Hein, 0-5)',
+    )
+    plaque_confidence = models.FloatField(null=True, blank=True)
+    ai_plaque_score = models.IntegerField(null=True, blank=True)
+    ai_plaque_confidence = models.FloatField(null=True, blank=True)
 
     # Grad-CAM heatmap images (generated during inference)
     gradcam_frontal = models.ImageField(upload_to='gradcam/', null=True, blank=True)
@@ -197,6 +208,10 @@ class PatientAnalysis(models.Model):
             unique_code=self.unique_code
         ).exclude(pk=self.pk).exists():
             self.unique_code = generate_unique_code()
+
+        if self.clinical_recommendations is None:
+            self.clinical_recommendations = []
+
         super().save(*args, **kwargs)
 
 
@@ -214,9 +229,11 @@ class ReportRevision(models.Model):
     old_mgi_score = models.IntegerField(null=True, blank=True)
     old_ohi_score = models.IntegerField(null=True, blank=True)
     old_gei_score = models.IntegerField(null=True, blank=True)
+    old_plaque_score = models.IntegerField(null=True, blank=True)
     new_mgi_score = models.IntegerField(null=True, blank=True)
     new_ohi_score = models.IntegerField(null=True, blank=True)
     new_gei_score = models.IntegerField(null=True, blank=True)
+    new_plaque_score = models.IntegerField(null=True, blank=True)
     reason = models.TextField(blank=True, default='')
     created_at = models.DateTimeField(auto_now_add=True)
 

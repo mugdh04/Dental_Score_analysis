@@ -5,9 +5,11 @@ import threading
 import random
 import string
 from pathlib import Path
+from urllib.parse import urlencode
 
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
+from django.core.paginator import Paginator
 from django.db import models as db_models
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
@@ -16,7 +18,13 @@ from django.utils import timezone
 from django.views.decorators.cache import never_cache
 from PIL import Image
 
-from .forms import DentistCreatePatientForm, PatientUploadForm, ReviewReportForm
+from .forms import (
+    AdminCreateUserForm,
+    AdminSetUserPasswordForm,
+    DentistCreatePatientForm,
+    PatientUploadForm,
+    ReviewReportForm,
+)
 from .models import DentalUser, PatientAnalysis, ReportRevision
 
 
@@ -292,13 +300,134 @@ def admin_dashboard_view(request):
         return HttpResponse('Access denied.', status=403)
 
     reports = PatientAnalysis.objects.select_related('dentist_owner', 'patient_user', 'reviewed_by').all()[:120]
+    users_qs = DentalUser.objects.select_related('dentist_owner').order_by('role', 'username')
+
+    role_filter = request.GET.get('role', '').strip()
+    search_query = request.GET.get('q', '').strip()
+
+    if role_filter in {DentalUser.ROLE_ADMIN, DentalUser.ROLE_DENTIST, DentalUser.ROLE_PATIENT}:
+        users_qs = users_qs.filter(role=role_filter)
+
+    if search_query:
+        users_qs = users_qs.filter(
+            db_models.Q(username__icontains=search_query)
+            | db_models.Q(first_name__icontains=search_query)
+            | db_models.Q(last_name__icontains=search_query)
+            | db_models.Q(phone_number__icontains=search_query)
+            | db_models.Q(role__icontains=search_query)
+        )
+
+    paginator = Paginator(users_qs, 12)
+    page_obj = paginator.get_page(request.GET.get('page'))
+
+    query_params = {}
+    if role_filter:
+        query_params['role'] = role_filter
+    if search_query:
+        query_params['q'] = search_query
+    query_string = urlencode(query_params)
+
     context = {
         'reports': reports,
+        'users': page_obj.object_list,
+        'page_obj': page_obj,
         'users_total': DentalUser.objects.count(),
         'dentists_total': DentalUser.objects.filter(role=DentalUser.ROLE_DENTIST).count(),
         'patients_total': DentalUser.objects.filter(role=DentalUser.ROLE_PATIENT).count(),
+        'admin_user_form': AdminCreateUserForm(),
+        'admin_password_form': AdminSetUserPasswordForm(),
+        'search_query': search_query,
+        'role_filter': role_filter,
+        'query_string': query_string,
     }
     return render(request, 'analysis/admin_dashboard.html', context)
+
+
+@login_required
+def admin_create_user_view(request):
+    if not request.user.is_role_admin:
+        return HttpResponse('Access denied.', status=403)
+    if request.method != 'POST':
+        return redirect('analysis:admin_dashboard')
+
+    form = AdminCreateUserForm(request.POST)
+    if not form.is_valid():
+        messages.error(request, 'Could not create user. Please correct the form errors.')
+        return redirect('analysis:admin_dashboard')
+
+    user = DentalUser.objects.create_user(
+        username=form.cleaned_data['username'],
+        password=form.cleaned_data['password'],
+        role=form.cleaned_data['role'],
+        first_name=form.cleaned_data.get('first_name', '').strip(),
+        last_name=form.cleaned_data.get('last_name', '').strip(),
+        phone_number=form.cleaned_data.get('phone_number') or None,
+        dentist_owner=form.cleaned_data.get('dentist_owner'),
+    )
+
+    messages.success(request, f'User {user.username} was created successfully.')
+    return redirect('analysis:admin_dashboard')
+
+
+@login_required
+def admin_delete_user_view(request, user_id):
+    if not request.user.is_role_admin:
+        return HttpResponse('Access denied.', status=403)
+    if request.method != 'POST':
+        return redirect('analysis:admin_dashboard')
+
+    target = get_object_or_404(DentalUser, pk=user_id)
+
+    if target.id == request.user.id:
+        messages.error(request, 'You cannot delete your own admin account while logged in.')
+        return redirect('analysis:admin_dashboard')
+
+    if target.is_role_admin and DentalUser.objects.filter(role=DentalUser.ROLE_ADMIN).count() <= 1:
+        messages.error(request, 'You cannot delete the last remaining admin account.')
+        return redirect('analysis:admin_dashboard')
+
+    username = target.username
+    target.delete()
+    messages.success(request, f'User {username} was removed successfully.')
+    return redirect('analysis:admin_dashboard')
+
+
+@login_required
+def admin_set_user_password_view(request, user_id):
+    if not request.user.is_role_admin:
+        return HttpResponse('Access denied.', status=403)
+    if request.method != 'POST':
+        return redirect('analysis:admin_dashboard')
+
+    target = get_object_or_404(DentalUser, pk=user_id)
+    form = AdminSetUserPasswordForm(request.POST)
+    if not form.is_valid():
+        messages.error(request, f'Password update failed for {target.username}.')
+        return redirect('analysis:admin_dashboard')
+
+    target.set_password(form.cleaned_data['new_password'])
+    target.save(update_fields=['password'])
+    messages.success(request, f'Password was updated for {target.username}.')
+    return redirect('analysis:admin_dashboard')
+
+
+@login_required
+def admin_reset_user_password_view(request, user_id):
+    if not request.user.is_role_admin:
+        return HttpResponse('Access denied.', status=403)
+    if request.method != 'POST':
+        return redirect('analysis:admin_dashboard')
+
+    target = get_object_or_404(DentalUser, pk=user_id)
+    temp_password = _generate_password()
+    target.set_password(temp_password)
+    target.save(update_fields=['password'])
+
+    messages.success(
+        request,
+        f'Temporary password for {target.username}: {temp_password} (shown only once).',
+    )
+    return redirect('analysis:admin_dashboard')
 
 
 @login_required
