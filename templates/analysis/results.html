@@ -1,4 +1,9 @@
 {% extends "analysis/base.html" %}
+<!--
+Change Note (2026-04-03):
+- Added plaque index card (ratio/score/label) for persisted PI metrics.
+- Added confidence bars for MGI/OHI/GEI using existing confidence fields.
+-->
 {% block title %}Results — {{ patient.patient_name }} — DentAI{% endblock %}
 
 {% block content %}
@@ -27,12 +32,17 @@
         {% endif %}
     </div>
 
-    <div class="grid grid-cols-1 md:grid-cols-3 gap-5">
+    <div class="grid grid-cols-1 md:grid-cols-4 gap-5">
         <div class="glass-card rounded-2xl p-5">
             <p class="text-xs uppercase tracking-wider text-gray-500">MGI</p>
             <p class="text-3xl font-bold text-gray-800 mt-1">{{ patient.mgi_score|default_if_none:"-" }} / {{ mgi_max }}</p>
             <p class="text-sm text-gray-600 mt-2">{{ mgi_desc }}</p>
-            {% if patient.mgi_confidence %}<p class="text-xs text-gray-400 mt-2">Confidence: {{ patient.mgi_confidence|floatformat:0 }}%</p>{% endif %}
+            {% if patient.mgi_confidence %}
+            <p class="text-xs text-gray-400 mt-2">Confidence: {{ patient.mgi_confidence|floatformat:0 }}%</p>
+            <div class="mt-2 h-2 w-full rounded-full bg-gray-100 overflow-hidden">
+                <div class="h-2 rounded-full bg-dental-500" style="width: {{ patient.mgi_confidence|floatformat:0 }}%"></div>
+            </div>
+            {% endif %}
             {% if show_old_and_new and patient.has_dentist_revision %}
             <p class="text-xs text-gray-500 mt-2">AI baseline: {{ patient.ai_mgi_score|default_if_none:"-" }}</p>
             {% endif %}
@@ -41,7 +51,12 @@
             <p class="text-xs uppercase tracking-wider text-gray-500">OHI</p>
             <p class="text-3xl font-bold text-gray-800 mt-1">{{ patient.ohi_score|default_if_none:"-" }} / {{ ohi_max }}</p>
             <p class="text-sm text-gray-600 mt-2">{{ ohi_desc }}</p>
-            {% if patient.ohi_confidence %}<p class="text-xs text-gray-400 mt-2">Confidence: {{ patient.ohi_confidence|floatformat:0 }}%</p>{% endif %}
+            {% if patient.ohi_confidence %}
+            <p class="text-xs text-gray-400 mt-2">Confidence: {{ patient.ohi_confidence|floatformat:0 }}%</p>
+            <div class="mt-2 h-2 w-full rounded-full bg-gray-100 overflow-hidden">
+                <div class="h-2 rounded-full bg-dental-500" style="width: {{ patient.ohi_confidence|floatformat:0 }}%"></div>
+            </div>
+            {% endif %}
             {% if show_old_and_new and patient.has_dentist_revision %}
             <p class="text-xs text-gray-500 mt-2">AI baseline: {{ patient.ai_ohi_score|default_if_none:"-" }}</p>
             {% endif %}
@@ -50,9 +65,31 @@
             <p class="text-xs uppercase tracking-wider text-gray-500">GEI</p>
             <p class="text-3xl font-bold text-gray-800 mt-1">{{ patient.gei_score|default_if_none:"-" }} / {{ gei_max }}</p>
             <p class="text-sm text-gray-600 mt-2">{{ gei_desc }}</p>
-            {% if patient.gei_confidence %}<p class="text-xs text-gray-400 mt-2">Confidence: {{ patient.gei_confidence|floatformat:0 }}%</p>{% endif %}
+            {% if patient.gei_confidence %}
+            <p class="text-xs text-gray-400 mt-2">Confidence: {{ patient.gei_confidence|floatformat:0 }}%</p>
+            <div class="mt-2 h-2 w-full rounded-full bg-gray-100 overflow-hidden">
+                <div class="h-2 rounded-full bg-dental-500" style="width: {{ patient.gei_confidence|floatformat:0 }}%"></div>
+            </div>
+            {% endif %}
             {% if show_old_and_new and patient.has_dentist_revision %}
             <p class="text-xs text-gray-500 mt-2">AI baseline: {{ patient.ai_gei_score|default_if_none:"-" }}</p>
+            {% endif %}
+        </div>
+        <div class="glass-card rounded-2xl p-5">
+            <p class="text-xs uppercase tracking-wider text-gray-500">PI</p>
+            <p class="text-3xl font-bold text-gray-800 mt-1">{{ plaque_score|default_if_none:"-" }} / 3</p>
+            <p class="text-sm text-gray-600 mt-2">
+                {% if plaque_percent is not None %}
+                Ratio: {{ plaque_percent|floatformat:1 }}%
+                {% else %}
+                Ratio: N/A
+                {% endif %}
+            </p>
+            <div class="mt-2 inline-flex rounded-full border px-3 py-1 text-xs font-semibold {{ plaque_badge_style }}">
+                {{ plaque_label|default:"Unknown" }}
+            </div>
+            {% if show_old_and_new and patient.has_dentist_revision %}
+            <p class="text-xs text-gray-500 mt-2">AI baseline: {{ patient.ai_plaque_score|default_if_none:"-" }}</p>
             {% endif %}
         </div>
     </div>
