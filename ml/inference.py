@@ -4,7 +4,14 @@ Loads a trained DINOv2 + ensemble model and predicts MGI, OHI, GEI scores.
 Supports TTA (Test-Time Augmentation) for improved accuracy.
 """
 
+# -----------------------------------------------------------------------------
+# Change Note (2026-04-03)
+# Added configurable model-path resolution using MODEL_PATH with safe fallbacks
+# and switched startup/runtime diagnostics to logging.
+# -----------------------------------------------------------------------------
+
 import os
+import logging
 import numpy as np
 from PIL import Image
 from pathlib import Path
@@ -16,6 +23,7 @@ from ml.transforms import get_inference_transforms, get_tta_transforms
 _model_cache = None
 _model_path_cache = None
 _device = None
+logger = logging.getLogger(__name__)
 
 
 def _ensure_torch():
@@ -40,14 +48,44 @@ def clear_model_cache():
     _model_path_cache = None
 
 
+def _resolve_default_checkpoint_path() -> str:
+    """Resolve checkpoint path from env/settings with compatibility fallback."""
+    base_dir = Path(__file__).resolve().parent.parent
+    env_model_path = os.environ.get('MODEL_PATH')
+
+    if env_model_path:
+        env_path = Path(env_model_path)
+        if not env_path.is_absolute():
+            env_path = (base_dir / env_path).resolve()
+        if env_path.exists():
+            return str(env_path)
+        logger.warning('MODEL_PATH is set but file does not exist: %s', env_path)
+
+    # Prefer Django settings path when available.
+    try:
+        from django.conf import settings as django_settings
+
+        settings_path = getattr(django_settings, 'MODEL_PATH', None)
+        if settings_path and Path(settings_path).exists():
+            return str(settings_path)
+    except Exception:
+        pass
+
+    models_default = base_dir / 'models' / 'multitask_model.pth'
+    legacy_default = base_dir / 'ml' / 'checkpoints' / 'best_model.pth'
+
+    if models_default.exists():
+        return str(models_default)
+    return str(legacy_default)
+
+
 def load_trained_model(checkpoint_path=None):
     """Load the trained model (cached for reuse)."""
     global _model_cache, _model_path_cache
     _ensure_torch()
 
     if checkpoint_path is None:
-        base_dir = Path(__file__).resolve().parent.parent
-        checkpoint_path = str(base_dir / 'ml' / 'checkpoints' / 'best_model.pth')
+        checkpoint_path = _resolve_default_checkpoint_path()
 
     checkpoint_path = str(checkpoint_path)
 
@@ -65,7 +103,7 @@ def load_trained_model(checkpoint_path=None):
     model = load_model(checkpoint_path, device)
     _model_cache = model
     _model_path_cache = checkpoint_path
-    print(f"Model loaded from {checkpoint_path} on {device}")
+    logger.info('Model loaded from %s on %s', checkpoint_path, device)
     return model
 
 

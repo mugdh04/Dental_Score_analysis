@@ -4,6 +4,7 @@ import json
 import threading
 import random
 import string
+import logging
 from pathlib import Path
 from urllib.parse import urlencode
 
@@ -17,6 +18,7 @@ from django.conf import settings
 from django.utils import timezone
 from django.views.decorators.cache import never_cache
 from PIL import Image
+import numpy as np
 
 from .forms import (
     AdminCreateUserForm,
@@ -26,6 +28,17 @@ from .forms import (
     ReviewReportForm,
 )
 from .models import DentalUser, PatientAnalysis, ReportRevision
+
+# -----------------------------------------------------------------------------
+# Change Note (2026-04-03)
+# Integrated plaque-index persistence/display, added PI computation in the
+# background analysis path, and introduced startup-safe logging hooks while
+# preserving existing upload/processing/results workflow.
+# -----------------------------------------------------------------------------
+
+logger = logging.getLogger(__name__)
+_PI_DETECTOR = None
+_PI_SEGMENTOR = None
 
 
 # Dental hygiene quotes for the loading screen
@@ -100,6 +113,121 @@ def _get_status_banner(patient, viewer=None):
     return {
         'bg': 'bg-green-50 border-green-700 text-green-700',
         'text': rejected_text,
+    }
+
+
+def _plaque_badge_style(score):
+    """Return Tailwind badge classes for plaque score severity."""
+    mapping = {
+        0: 'bg-green-50 text-green-700 border-green-200',
+        1: 'bg-yellow-50 text-yellow-700 border-yellow-200',
+        2: 'bg-orange-50 text-orange-700 border-orange-200',
+        3: 'bg-red-50 text-red-700 border-red-200',
+    }
+    return mapping.get(score, 'bg-gray-50 text-gray-700 border-gray-200')
+
+
+def _mask_from_boxes(image_shape, boxes):
+    """Build a fallback binary tooth mask by filling detected boxes."""
+    height, width = image_shape[:2]
+    mask = np.zeros((height, width), dtype=np.uint8)
+    for box in boxes:
+        x1, y1, x2, y2 = [int(round(v)) for v in box[:4]]
+        x1 = max(0, min(width - 1, x1))
+        y1 = max(0, min(height - 1, y1))
+        x2 = max(0, min(width - 1, x2))
+        y2 = max(0, min(height - 1, y2))
+        if x2 <= x1 or y2 <= y1:
+            continue
+        mask[y1 : y2 + 1, x1 : x2 + 1] = 1
+    if mask.sum() == 0:
+        mask[:, :] = 1
+    return mask
+
+
+def _get_pi_components():
+    """Lazily initialize detector/segmentor components for plaque scoring."""
+    global _PI_DETECTOR, _PI_SEGMENTOR
+
+    if _PI_DETECTOR is not None and _PI_SEGMENTOR is not None:
+        return _PI_DETECTOR, _PI_SEGMENTOR
+
+    try:
+        from preprocessing.sam_segmentation import GumSegmentor
+        from preprocessing.yolo_detection import ToothDetector
+
+        yolo_weights = os.environ.get('YOLO_WEIGHTS_PATH')
+        sam_checkpoint = os.environ.get('SAM_CHECKPOINT_PATH')
+
+        _PI_DETECTOR = ToothDetector(weights_path=yolo_weights, device='cpu')
+        _PI_SEGMENTOR = GumSegmentor(checkpoint_path=sam_checkpoint, device='cpu')
+    except Exception as exc:
+        logger.warning('PI preprocessing components unavailable, using fallback masks: %s', exc)
+        _PI_DETECTOR = None
+        _PI_SEGMENTOR = None
+
+    return _PI_DETECTOR, _PI_SEGMENTOR
+
+
+def _compute_patient_plaque_metrics(patient):
+    """Compute averaged plaque ratio/score/label across all three patient views."""
+    from inference.plaque_index import compute_plaque_index, plaque_score_to_label
+    from preprocessing.standardize import standardize_image
+
+    detector, segmentor = _get_pi_components()
+    image_paths = [
+        patient.frontal_image.path,
+        patient.left_lateral_image.path,
+        patient.right_lateral_image.path,
+    ]
+
+    all_ratios = []
+    for image_path in image_paths:
+        image = standardize_image(image_path=image_path, image_size=512)
+
+        if detector is not None:
+            boxes = detector.detect(image)
+        else:
+            height, width = image.shape[:2]
+            boxes = [[0.0, 0.0, float(width - 1), float(height - 1), 1.0]]
+
+        if segmentor is not None:
+            tooth_mask, _ = segmentor.segment(image, boxes)
+        else:
+            tooth_mask = _mask_from_boxes(image.shape, boxes)
+
+        image_uint8 = (np.clip(image, 0.0, 1.0) * 255.0).astype(np.uint8)
+        for box in boxes:
+            x1, y1, x2, y2 = [int(round(v)) for v in box[:4]]
+            x1 = max(0, min(image_uint8.shape[1] - 1, x1))
+            y1 = max(0, min(image_uint8.shape[0] - 1, y1))
+            x2 = max(0, min(image_uint8.shape[1] - 1, x2))
+            y2 = max(0, min(image_uint8.shape[0] - 1, y2))
+            if x2 <= x1 or y2 <= y1:
+                continue
+
+            crop_image = image_uint8[y1 : y2 + 1, x1 : x2 + 1]
+            crop_mask = tooth_mask[y1 : y2 + 1, x1 : x2 + 1]
+            ratio, _ = compute_plaque_index(crop_image, crop_mask)
+            all_ratios.append(float(ratio))
+
+    if not all_ratios:
+        return None
+
+    avg_ratio = float(np.mean(all_ratios))
+    if avg_ratio <= 0.10:
+        score = 0
+    elif avg_ratio <= 0.25:
+        score = 1
+    elif avg_ratio <= 0.50:
+        score = 2
+    else:
+        score = 3
+
+    return {
+        'ratio': avg_ratio,
+        'score': score,
+        'label': plaque_score_to_label(score),
     }
 
 
@@ -215,6 +343,13 @@ def results_view(request, pk):
     can_view_revisions = request.user.is_role_dentist or request.user.is_role_admin
     revisions = patient.revisions.select_related('edited_by').all() if can_view_revisions else ReportRevision.objects.none()
 
+    plaque_ratio = patient.plaque_ratio if patient.plaque_ratio is not None else patient.ai_plaque_ratio
+    plaque_score = patient.plaque_score if patient.plaque_score is not None else patient.ai_plaque_score
+    plaque_label = patient.plaque_label or patient.ai_plaque_label
+
+    if plaque_label is None and plaque_score is not None:
+        plaque_label = {0: 'None', 1: 'Low', 2: 'Medium', 3: 'High'}.get(plaque_score, 'Unknown')
+
     context = {
         'patient': patient,
         'mgi_desc': mgi_descriptions.get(patient.mgi_score, 'N/A'),
@@ -230,6 +365,11 @@ def results_view(request, pk):
         'show_old_and_new': request.user.is_role_dentist or request.user.is_role_admin,
         'show_revisions': can_view_revisions,
         'revisions': revisions,
+        'plaque_ratio': plaque_ratio,
+        'plaque_percent': plaque_ratio * 100.0 if plaque_ratio is not None else None,
+        'plaque_score': plaque_score,
+        'plaque_label': plaque_label,
+        'plaque_badge_style': _plaque_badge_style(plaque_score),
     }
 
     return render(request, 'analysis/results.html', context)
@@ -258,6 +398,9 @@ def check_status(request, pk):
             'mgi_score': patient.mgi_score,
             'ohi_score': patient.ohi_score,
             'gei_score': patient.gei_score,
+            'plaque_score': patient.plaque_score,
+            'plaque_ratio': patient.plaque_ratio,
+            'plaque_label': patient.plaque_label,
         }
     elif patient.status == 'failed':
         data['error'] = patient.error_message
@@ -528,6 +671,9 @@ def review_report_view(request, pk):
 
     form = ReviewReportForm(request.POST, patient=patient)
     if not form.is_valid():
+        plaque_ratio = patient.plaque_ratio if patient.plaque_ratio is not None else patient.ai_plaque_ratio
+        plaque_score = patient.plaque_score if patient.plaque_score is not None else patient.ai_plaque_score
+        plaque_label = patient.plaque_label or patient.ai_plaque_label
         messages.error(request, 'Please correct the review form errors.')
         return render(request, 'analysis/results.html', {
             'patient': patient,
@@ -543,6 +689,11 @@ def review_report_view(request, pk):
             'mgi_desc': 'N/A',
             'ohi_desc': 'N/A',
             'gei_desc': 'N/A',
+            'plaque_ratio': plaque_ratio,
+            'plaque_percent': plaque_ratio * 100.0 if plaque_ratio is not None else None,
+            'plaque_score': plaque_score,
+            'plaque_label': plaque_label,
+            'plaque_badge_style': _plaque_badge_style(plaque_score),
         })
 
     action = form.cleaned_data['action']
@@ -910,6 +1061,22 @@ def _run_analysis(patient_pk):
         patient.reviewed_by = None
         patient.reviewed_at = None
 
+        # Compute plaque metrics with best-effort fallback; do not fail report generation.
+        try:
+            plaque_metrics = _compute_patient_plaque_metrics(patient)
+            if plaque_metrics:
+                patient.ai_plaque_score = plaque_metrics['score']
+                patient.plaque_score = plaque_metrics['score']
+                patient.ai_plaque_ratio = plaque_metrics['ratio']
+                patient.plaque_ratio = plaque_metrics['ratio']
+                patient.ai_plaque_label = plaque_metrics['label']
+                patient.plaque_label = plaque_metrics['label']
+                # Preserve compatibility with existing confidence field.
+                patient.ai_plaque_confidence = plaque_metrics['ratio'] * 100.0
+                patient.plaque_confidence = plaque_metrics['ratio'] * 100.0
+        except Exception as plaque_exc:
+            logger.warning('Plaque metric computation failed for patient %s: %s', patient_pk, plaque_exc)
+
         # Save Grad-CAM images if available
         if predictions.get('gradcam'):
             gradcam_dir = os.path.join(settings.MEDIA_ROOT, 'gradcam')
@@ -931,8 +1098,7 @@ def _run_analysis(patient_pk):
         patient.save()
 
     except Exception as e:
-        import traceback
-        traceback.print_exc()
+        logger.exception('Background analysis failed for patient %s: %s', patient_pk, e)
         try:
             patient = PatientAnalysis.objects.get(pk=patient_pk)
             patient.status = 'failed'
