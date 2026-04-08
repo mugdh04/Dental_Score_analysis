@@ -292,3 +292,14 @@ class AdminSetUserPasswordForm(forms.Form):
             }
         ),
     )
+
+
+class UserProfileForm(forms.ModelForm):
+    class Meta:
+        model = DentalUser
+        fields = ['first_name', 'last_name', 'email', 'phone_number']
+        
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        for field in self.fields.values():
+            field.widget.attrs.update({'class': 'w-full px-4 py-2 border border-gray-300 rounded-xl focus:ring-2 focus:ring-dental-500 focus:border-dental-500 transition-all outline-none bg-gray-50'})
