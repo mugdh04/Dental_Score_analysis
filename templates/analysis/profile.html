@@ -1,0 +1,116 @@
+{% extends "analysis/base.html" %}
+{% block title %}My Profile - DentAI{% endblock %}
+
+{% block content %}
+<div class="fade-in max-w-4xl mx-auto space-y-8">
+    
+    <div class="bg-gradient-to-r from-gray-900 to-gray-700 rounded-3xl p-8 shadow-xl text-white relative overflow-hidden">
+        <div class="absolute -right-10 -top-10 opacity-10">
+            <i data-lucide="user-circle" class="w-64 h-64"></i>
+        </div>
+        <div class="relative z-10 flex items-center gap-6">
+            <div class="w-20 h-20 rounded-full bg-white/20 backdrop-blur-md border border-white/30 flex items-center justify-center font-bold text-3xl shadow-inner">
+                {{ user.get_full_name|make_list|first|default:user.username|make_list|first|upper }}
+            </div>
+            <div>
+                <h2 class="text-3xl font-display font-bold tracking-tight mb-1">{{ user.get_full_name|default:user.username }}</h2>
+                <p class="text-gray-300 text-sm flex items-center gap-2 font-medium">
+                    <span class="px-2.5 py-0.5 bg-white/20 rounded-md uppercase tracking-wider text-xs">{{ user.get_role_display }}</span>
+                    {{ user.email }}
+                </p>
+            </div>
+        </div>
+    </div>
+
+    {% if messages %}
+    <div class="space-y-3">
+        {% for message in messages %}
+        <div class="rounded-2xl border px-6 py-4 shadow-sm flex items-center gap-3 transition-all {% if message.tags == 'success' %}border-green-200 bg-green-50 text-green-800{% else %}border-red-200 bg-red-50 text-red-800{% endif %}">
+            <i data-lucide="{% if message.tags == 'success' %}check-circle{% else %}alert-circle{% endif %}" class="w-5 h-5"></i>
+            <span class="font-medium">{{ message }}</span>
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
+
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+        
+        <!-- Update Profile form -->
+        <div class="bg-white rounded-3xl p-8 shadow-sm border border-gray-100 h-fit">
+            <div class="flex items-center gap-3 mb-6 pb-4 border-b border-gray-50">
+                <div class="p-2.5 bg-blue-50 text-blue-600 rounded-xl">
+                    <i data-lucide="user" class="w-5 h-5"></i>
+                </div>
+                <h3 class="text-xl font-bold text-gray-800">Personal Details</h3>
+            </div>
+            
+            <form method="post" action="{% url 'analysis:profile' %}" class="space-y-5">
+                {% csrf_token %}
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div class="space-y-1">
+                        <label class="text-sm font-semibold text-gray-700">First Name</label>
+                        {{ profile_form.first_name }}
+                    </div>
+                    <div class="space-y-1">
+                        <label class="text-sm font-semibold text-gray-700">Last Name</label>
+                        {{ profile_form.last_name }}
+                    </div>
+                </div>
+                <div class="space-y-1">
+                    <label class="text-sm font-semibold text-gray-700">Email Address</label>
+                    {{ profile_form.email }}
+                </div>
+                <div class="space-y-1">
+                    <label class="text-sm font-semibold text-gray-700">Phone Number</label>
+                    {{ profile_form.phone_number }}
+                </div>
+                
+                <div class="pt-4 flex justify-end">
+                    <button type="submit" name="update_profile" class="rounded-xl bg-gray-900 px-6 py-2.5 text-white font-semibold shadow-sm hover:bg-gray-800 transition-all flex items-center gap-2">
+                        <i data-lucide="save" class="w-4 h-4"></i> Save Details
+                    </button>
+                </div>
+            </form>
+        </div>
+
+        <!-- Change Password form -->
+        <div class="bg-white rounded-3xl p-8 shadow-sm border border-gray-100 h-fit">
+            <div class="flex items-center gap-3 mb-6 pb-4 border-b border-gray-50">
+                <div class="p-2.5 bg-yellow-50 text-yellow-600 rounded-xl">
+                    <i data-lucide="key-round" class="w-5 h-5"></i>
+                </div>
+                <h3 class="text-xl font-bold text-gray-800">Security & Password</h3>
+            </div>
+            
+            <form method="post" action="{% url 'analysis:profile' %}" class="space-y-5">
+                {% csrf_token %}
+                {% for field in password_form %}
+                <div class="space-y-1">
+                    <label class="text-sm font-semibold text-gray-700">{{ field.label }}</label>
+                    {{ field }}
+                    {% if field.errors %}
+                        <p class="text-red-500 text-xs mt-1">{{ field.errors|join:", " }}</p>
+                    {% endif %}
+                    {% if field.help_text %}
+                        <p class="text-gray-400 text-[11px] mt-1">{{ field.help_text|safe }}</p>
+                    {% endif %}
+                </div>
+                {% endfor %}
+                
+                <div class="pt-4 flex justify-end">
+                    <button type="submit" name="change_password" class="rounded-xl bg-yellow-500 px-6 py-2.5 text-yellow-950 font-bold shadow-sm hover:bg-yellow-400 transition-all flex items-center gap-2">
+                        <i data-lucide="lock" class="w-4 h-4"></i> Change Password
+                    </button>
+                </div>
+            </form>
+        </div>
+
+    </div>
+</div>
+
+<script>
+    document.addEventListener("DOMContentLoaded", function() {
+        if(typeof lucide !== 'undefined') lucide.createIcons();
+    });
+</script>
+{% endblock %}
