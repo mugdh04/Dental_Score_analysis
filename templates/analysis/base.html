@@ -290,10 +290,10 @@
                     
                     {% if user.is_authenticated %}
                     <div class="nav-user-section">
-                        <div class="nav-user-badge">
+                        <a href="{% url 'analysis:profile' %}" class="nav-user-badge hover:bg-teal-100 transition-colors cursor-pointer" title="Manage Profile">
                             <i data-lucide="circle-user" class="w-4 h-4"></i>
                             <span>{{ user.username|truncatewords:1 }}</span>
-                        </div>
+                        </a>
                         <form method="post" action="{% url 'analysis:logout' %}" class="inline">
                             {% csrf_token %}
                             <button type="submit" class="nav-logout-btn" title="Logout">

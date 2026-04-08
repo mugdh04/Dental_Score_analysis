@@ -11,6 +11,7 @@ urlpatterns = [
     path('login/', auth_views.LoginView.as_view(template_name='analysis/login.html', authentication_form=PortalAuthenticationForm), name='login'),
     path('logout/', auth_views.LogoutView.as_view(next_page='analysis:login'), name='logout'),
     path('dashboard/', views.dashboard_view, name='dashboard'),
+    path('profile/', views.profile_view, name='profile'),
     path('dashboard/admin/', views.admin_dashboard_view, name='admin_dashboard'),
     path('dashboard/admin/create-user/', views.admin_create_user_view, name='admin_create_user'),
     path('dashboard/admin/delete-user/<int:user_id>/', views.admin_delete_user_view, name='admin_delete_user'),

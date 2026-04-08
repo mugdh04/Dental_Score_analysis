@@ -1106,3 +1106,40 @@ def _run_analysis(patient_pk):
             patient.save()
         except Exception:
             pass
+
+from django.contrib.auth import update_session_auth_hash
+from django.contrib.auth.forms import PasswordChangeForm
+from .forms import UserProfileForm
+
+@login_required
+def profile_view(request):
+    user = request.user
+    if request.method == 'POST':
+        if 'update_profile' in request.POST:
+            profile_form = UserProfileForm(request.POST, instance=user)
+            password_form = PasswordChangeForm(user)
+            if profile_form.is_valid():
+                profile_form.save()
+                messages.success(request, 'Profile details updated successfully.')
+                return redirect('analysis:profile')
+        elif 'change_password' in request.POST:
+            profile_form = UserProfileForm(instance=user)
+            password_form = PasswordChangeForm(user, request.POST)
+            if password_form.is_valid():
+                user = password_form.save()
+                update_session_auth_hash(request, user)
+                messages.success(request, 'Password updated successfully.')
+                return redirect('analysis:profile')
+            else:
+                messages.error(request, 'Please correct the errors below.')
+    else:
+        profile_form = UserProfileForm(instance=user)
+        password_form = PasswordChangeForm(user)
+    
+    for field in password_form.fields.values():
+        field.widget.attrs.update({'class': 'w-full px-4 py-2 border border-gray-300 rounded-xl focus:ring-2 focus:ring-dental-500 focus:border-dental-500 transition-all outline-none bg-gray-50'})
+
+    return render(request, 'analysis/profile.html', {
+        'profile_form': profile_form,
+        'password_form': password_form
+    })
