@@ -26,5 +26,6 @@ urlpatterns = [
     path('review/<uuid:pk>/', views.review_report_view, name='review_report'),
     path('download/<uuid:pk>/', views.download_report_pdf_view, name='download_report_pdf'),
     path('api/status/<uuid:pk>/', views.check_status, name='check_status'),
+    path('api/health/', views.health_check_view, name='health_check'),
     path('lookup/', views.lookup_view, name='lookup'),
 ]

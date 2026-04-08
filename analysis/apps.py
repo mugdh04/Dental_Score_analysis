@@ -40,9 +40,8 @@ class AnalysisConfig(AppConfig):
     def _warmup_models():
         """Best-effort model warm-up so first request is not cold."""
         try:
-            from ml.inference import load_trained_model
-
-            load_trained_model(getattr(settings, 'MODEL_PATH', None))
+            from analysis.views import get_predictor
+            get_predictor()
             logger.info('ML model warm-up completed successfully.')
         except Exception as exc:
             logger.warning('ML model warm-up skipped due to error: %s', exc)

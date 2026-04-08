@@ -143,8 +143,8 @@ class DentistCreatePatientForm(forms.Form):
     def clean_phone_number(self):
         raw = self.cleaned_data['phone_number']
         normalized = ''.join(ch for ch in raw if ch.isdigit())
-        if len(normalized) < 8:
-            raise forms.ValidationError('Phone number must contain at least 8 digits.')
+        if len(normalized) < 10 or len(normalized) > 10:
+            raise forms.ValidationError('Phone number must contain 10 digits.')
         return normalized
 
 
@@ -165,7 +165,7 @@ class ReviewReportForm(forms.Form):
     )
     mgi_score = forms.IntegerField(min_value=0, max_value=4, required=False)
     ohi_score = forms.IntegerField(min_value=0, max_value=3, required=False)
-    gei_score = forms.IntegerField(min_value=0, max_value=2, required=False)
+    gei_score = forms.IntegerField(min_value=0, max_value=3, required=False)
     reason = forms.CharField(required=False, widget=forms.Textarea(attrs={'rows': 3}))
 
     def __init__(self, *args, **kwargs):

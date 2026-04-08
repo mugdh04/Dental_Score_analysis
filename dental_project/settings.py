@@ -96,17 +96,13 @@ LOGIN_REDIRECT_URL = '/dashboard/'
 LOGOUT_REDIRECT_URL = '/login/'
 
 # ML Model paths
-ML_MODEL_DIR = BASE_DIR / 'ml' / 'checkpoints'
+ML_MODEL_DIR = BASE_DIR / 'models' / 'checkpoints'
 THESIS_DATA_DIR = BASE_DIR / 'Thesis_Data'
-DEFAULT_MODEL_PATH = BASE_DIR / 'models' / 'multitask_model.pth'
-LEGACY_MODEL_PATH = ML_MODEL_DIR / 'best_model.pth'
+DEFAULT_MODEL_PATH = BASE_DIR / 'models' / 'ensemble_config.json'
 
 MODEL_PATH = os.environ.get('MODEL_PATH', str(DEFAULT_MODEL_PATH))
 if not os.path.isabs(MODEL_PATH):
     MODEL_PATH = str((BASE_DIR / MODEL_PATH).resolve())
-
-if not os.path.exists(MODEL_PATH):
-    MODEL_PATH = str(LEGACY_MODEL_PATH)
 
 WARMUP_MODEL_ON_STARTUP = os.environ.get('WARMUP_MODEL_ON_STARTUP', '1').strip().lower() in {
     '1', 'true', 'yes', 'on'
