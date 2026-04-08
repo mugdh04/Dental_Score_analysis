@@ -1,26 +1,28 @@
---extra-index-url https://download.pytorch.org/whl/cu121
+# DentAI Analyzer — Model Training Requirements
+# Install with: pip install -r requirements_model.txt
+# For GPU (CUDA 12.1): pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
 
-# Core PyTorch (CUDA 12.1 enabled)
 torch>=2.1.0
 torchvision>=0.16.0
-
-# Models & Inference
-timm>=0.9.12
-ultralytics>=8.0.0
-segment-anything
-
-# Image & Data Processing
+timm>=1.0.0
 opencv-python>=4.8.0
-albumentations>=1.3.1
+albumentations==1.2.1
 scikit-learn>=1.3.0
-
-# ONNX execution (GPU enabled)
-onnx>=1.14.0
-onnxruntime-gpu>=1.16.0
-
-# Visualization & Utils
+scipy>=1.11.0
 matplotlib>=3.7.0
 seaborn>=0.12.0
 pandas>=2.0.0
 numpy>=1.24.0
 tqdm>=4.65.0
+ipywidgets>=8.0.0
+
+# Optional — for ONNX export
+onnx>=1.14.0
+onnxruntime>=1.16.0
+
+# Optional — torchmetrics for additional metrics
+torchmetrics>=1.2.0
+
+# Optional — advanced preprocessing (only needed for patch-based pipeline)
+# ultralytics>=8.0.0
+# segment-anything
