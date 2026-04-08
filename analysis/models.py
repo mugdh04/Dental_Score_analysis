@@ -128,7 +128,7 @@ class PatientAnalysis(models.Model):
     # Predicted scores (nullable until processing completes)
     mgi_score = models.IntegerField(null=True, blank=True, help_text='Modified Gingival Index (0-4)')
     ohi_score = models.IntegerField(null=True, blank=True, help_text='Oral Hygiene Index (0-3)')
-    gei_score = models.IntegerField(null=True, blank=True, help_text='Gingival Enlargement Index (0-2)')
+    gei_score = models.IntegerField(null=True, blank=True, help_text='Gingival Enlargement Index (0-3)')
 
     # Immutable AI baseline scores for audit purposes
     ai_mgi_score = models.IntegerField(null=True, blank=True)
