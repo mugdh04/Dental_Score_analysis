@@ -86,6 +86,7 @@ class OralHealthModel(nn.Module):
         self.backbone = timm.create_model(
             backbone_name,
             pretrained=True,
+            img_size=int(config.get("image_size", 518)),
             num_classes=0,
             global_pool="avg",
         )

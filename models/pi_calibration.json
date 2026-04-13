@@ -1,0 +1,6 @@
+{
+  "mean_brightness": 128.0,
+  "mean_contrast": 40.0,
+  "mean_temp": 5.0,
+  "note": "Placeholder \u2014 recompute using compute_pi_calibration_reference() after inference pipeline is set up"
+}

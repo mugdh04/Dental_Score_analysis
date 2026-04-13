@@ -1,0 +1,68 @@
+{
+  "model_type": "OralHealthModelV2",
+  "models": [
+    "C:\\Users\\Mugdh\\CodeSpace\\Dental_Score_analysis\\models\\checkpoints\\fold_1_swa.pth",
+    "C:\\Users\\Mugdh\\CodeSpace\\Dental_Score_analysis\\models\\checkpoints\\fold_2_swa.pth",
+    "C:\\Users\\Mugdh\\CodeSpace\\Dental_Score_analysis\\models\\checkpoints\\fold_3_swa.pth",
+    "C:\\Users\\Mugdh\\CodeSpace\\Dental_Score_analysis\\models\\checkpoints\\fold_4_swa.pth",
+    "C:\\Users\\Mugdh\\CodeSpace\\Dental_Score_analysis\\models\\checkpoints\\fold_5_swa.pth"
+  ],
+  "weights": [
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0
+  ],
+  "config": {
+    "image_size": 336,
+    "num_classes_mgi": 5,
+    "num_classes_ohi": 3,
+    "num_classes_gei": 3,
+    "backbone_model": "vit_small_patch14_dinov2.lvd142m",
+    "pretrained_backbone": true,
+    "freeze_epochs": 10,
+    "unfreeze_blocks": 6,
+    "dropout": 0.2,
+    "projection_dim": 256,
+    "head_hidden_dim": 128,
+    "view_attn_heads": 4,
+    "batch_size": 4,
+    "grad_accum_steps": 4,
+    "num_epochs": 100,
+    "warmup_epochs": 5,
+    "lr_backbone": 5e-07,
+    "lr_projection": 5e-05,
+    "lr_heads": 0.0002,
+    "weight_decay": 0.0001,
+    "swa_start_epoch": 70,
+    "swa_lr": 3e-06,
+    "alpha_ordinal": 1.5,
+    "alpha_focal": 0.5,
+    "focal_gamma": 2.5,
+    "pos_weight_cap": 10.0,
+    "label_smooth_bce": 0.02,
+    "k_folds": 5,
+    "early_stopping_patience": 25,
+    "seed": 42,
+    "mixup_alpha": 0.3,
+    "mixup_prob": 0.4,
+    "tta_steps": 5,
+    "num_workers": 0,
+    "data_dir": "C:\\Users\\Mugdh\\CodeSpace\\Dental_Score_analysis\\Thesis_Data",
+    "checkpoint_dir": "C:\\Users\\Mugdh\\CodeSpace\\Dental_Score_analysis\\models\\checkpoints",
+    "plots_dir": "C:\\Users\\Mugdh\\CodeSpace\\Dental_Score_analysis\\outputs\\plots"
+  },
+  "avg_val_f1": {
+    "mgi": 0.2799782843492462,
+    "ohi": 0.5805228852288404,
+    "gei": 0.5242800590246234
+  },
+  "label_mapping": {
+    "ohi": "classes 0,1,2  (original 2 and 3 merged into class 2)",
+    "gei": "classes 0,1,2  (original 2 and 3 merged into class 2)",
+    "mgi": "classes 0,1,2,3,4 (unchanged)"
+  },
+  "decode": "sigmoid(logits) > 0.5 \u2192 sum per threshold = predicted class",
+  "tta_steps": 5
+}

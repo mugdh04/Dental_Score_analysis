@@ -84,7 +84,8 @@ Change Note (2026-04-03):
         </div>
         <div class="glass-card rounded-2xl p-5">
             <p class="text-xs uppercase tracking-wider text-gray-500">PI</p>
-            <p class="text-3xl font-bold text-gray-800 mt-1">{{ plaque_score|default_if_none:"-" }} / 3</p>
+            <p class="text-3xl font-bold text-gray-800 mt-1">{{ plaque_score|default_if_none:"-" }} / 5</p>
+            <p class="text-sm text-gray-600 mt-2">{{ pi_desc }}</p>
             <p class="text-sm text-gray-600 mt-2">
                 {% if plaque_percent is not None %}
                 Ratio: {{ plaque_percent|floatformat:1 }}%
