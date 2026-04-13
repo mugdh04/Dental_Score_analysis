@@ -120,9 +120,11 @@ def _plaque_badge_style(score):
     """Return Tailwind badge classes for plaque score severity."""
     mapping = {
         0: 'bg-green-50 text-green-700 border-green-200',
-        1: 'bg-yellow-50 text-yellow-700 border-yellow-200',
-        2: 'bg-orange-50 text-orange-700 border-orange-200',
-        3: 'bg-red-50 text-red-700 border-red-200',
+        1: 'bg-green-50 text-green-700 border-green-200',
+        2: 'bg-yellow-50 text-yellow-700 border-yellow-200',
+        3: 'bg-orange-50 text-orange-700 border-orange-200',
+        4: 'bg-orange-50 text-orange-700 border-orange-200',
+        5: 'bg-red-50 text-red-700 border-red-200',
     }
     return mapping.get(score, 'bg-gray-50 text-gray-700 border-gray-200')
 
@@ -271,6 +273,15 @@ def results_view(request, pk):
         3: 'Severe enlargement — marked enlargement covering a significant portion of the clinical crown',
     }
 
+    pi_descriptions = {
+        0: 'No plaque',
+        1: 'Separate flecks of plaque at the cervical margin',
+        2: 'A thin continuous band of plaque (up to 1 mm) at the cervical margin',
+        3: 'A band of plaque wider than 1 mm, but covering less than one-third of the crown',
+        4: 'Plaque covering one-third to two-thirds of the crown',
+        5: 'Plaque covering two-thirds or more of the crown',
+    }
+
     can_view_revisions = request.user.is_role_dentist or request.user.is_role_admin
     revisions = patient.revisions.select_related('edited_by').all() if can_view_revisions else ReportRevision.objects.none()
 
@@ -295,6 +306,7 @@ def results_view(request, pk):
         'mgi_desc': mgi_descriptions.get(patient.mgi_score, 'N/A'),
         'ohi_desc': ohi_descriptions.get(patient.ohi_score, 'N/A'),
         'gei_desc': gei_descriptions.get(patient.gei_score, 'N/A'),
+        'pi_desc': pi_descriptions.get(plaque_score, 'N/A') if plaque_score is not None else 'N/A',
         'mgi_max': 4,
         'ohi_max': 3,
         'gei_max': 3,
@@ -991,6 +1003,28 @@ def _run_analysis(patient_pk):
         global _LAST_INFERENCE_LATENCY
         _LAST_INFERENCE_LATENCY = latency
 
+        # Compute plaque metrics using the new pi_estimator BEFORE logging
+        import cv2
+        from inference.pi_estimator import estimate_pi
+        
+        try:
+            frontal_rgb = cv2.cvtColor(cv2.imread(frontal_path), cv2.COLOR_BGR2RGB)
+            left_rgb    = cv2.cvtColor(cv2.imread(left_path),    cv2.COLOR_BGR2RGB)
+            right_rgb   = cv2.cvtColor(cv2.imread(right_path),   cv2.COLOR_BGR2RGB)
+            
+            pi_result = estimate_pi(
+                frontal_rgb=frontal_rgb,
+                left_rgb=left_rgb,
+                right_rgb=right_rgb,
+                predicted_ohi=predictions['ohi']['score'],
+                verbose=False,
+            )
+        except Exception as e:
+            logger.warning(f"pi_estimator failed: {e}")
+            pi_result = {"pi_score": 0, "pi_raw": 0.0, "coverage_f": 0.0, "confidence": "low"}
+            
+        predictions['pi'] = pi_result  # Inject into the predictions dictionary
+
         # Log prediction to CSV
         log_file = os.path.join(settings.BASE_DIR, 'inference_log.csv')
         log_exists = os.path.exists(log_file)
@@ -1024,16 +1058,25 @@ def _run_analysis(patient_pk):
         patient.reviewed_by = None
         patient.reviewed_at = None
 
-        # Compute plaque metrics
-        plaque_metrics = predictions['pi']
-        patient.ai_plaque_score = plaque_metrics['pi_score']
-        patient.plaque_score = plaque_metrics['pi_score']
-        patient.ai_plaque_ratio = plaque_metrics['pi_ratio']
-        patient.plaque_ratio = plaque_metrics['pi_ratio']
-        patient.ai_plaque_label = plaque_metrics['pi_label']
-        patient.plaque_label = plaque_metrics['pi_label']
-        patient.ai_plaque_confidence = plaque_metrics['pi_ratio'] * 100.0  # Or arbitrary base
-        patient.plaque_confidence = plaque_metrics['pi_ratio'] * 100.0
+        # Mapping confidence string to float for the model fields
+        conf_map = {"high": 100.0, "medium": 60.0}
+        conf_val = conf_map.get(pi_result.get("confidence", "low").split()[0], 30.0)
+
+        patient.ai_plaque_score = pi_result['pi_score']
+        patient.plaque_score = pi_result['pi_score']
+        
+        # We can store the weighted coverage in ratio fields if needed
+        patient.ai_plaque_ratio = pi_result['pi_raw'] / 5.0  # Normalize back to [0,1] if raw is 0-5
+        patient.plaque_ratio = pi_result['pi_raw'] / 5.0
+        
+        # Plaque label based on score
+        labels = {0: "No plaque", 1: "Trace", 2: "Mild", 3: "Moderate", 4: "Heavy", 5: "Severe"}
+        pl_label = labels.get(pi_result['pi_score'], "Unknown")
+        patient.ai_plaque_label = pl_label
+        patient.plaque_label = pl_label
+        
+        patient.ai_plaque_confidence = conf_val
+        patient.plaque_confidence = conf_val
 
         # Save Grad-CAM images if available
         if predictions.get('gradcam'):
