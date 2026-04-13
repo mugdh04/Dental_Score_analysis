@@ -38,56 +38,86 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 class _TaskHead(nn.Module):
-    def __init__(self, in_features: int, num_classes: int, hidden_dim: int = 256, dropout: float = 0.45) -> None:
+    """Two-layer MLP head.  Output dim = num_classes - 1 for ordinal BCE."""
+    def __init__(self, in_dim: int, out_dim: int, hidden_dim: int = 128, dropout: float = 0.20):
         super().__init__()
         self.net = nn.Sequential(
-            nn.Linear(in_features, hidden_dim),
-            nn.LayerNorm(hidden_dim),
+            nn.Linear(in_dim, hidden_dim),
             nn.GELU(),
             nn.Dropout(dropout),
-            nn.Linear(hidden_dim, 128),
-            nn.GELU(),
-            nn.Dropout(dropout * 0.5),
-            nn.Linear(128, num_classes),
+            nn.Linear(hidden_dim, out_dim),
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.net(x)
 
+def _create_backbone_eval(name: str, img_size: int) -> nn.Module:
+    import timm
+    return timm.create_model(name, pretrained=False, img_size=img_size, num_classes=0, global_pool="avg")
+
+class ViewAttentionPool(nn.Module):
+    """Self-attention over the 3 intra-oral views, then mean-pool."""
+    def __init__(self, dim: int, num_heads: int = 4, dropout: float = 0.1):
+        super().__init__()
+        self.attn  = nn.MultiheadAttention(dim, num_heads, batch_first=True, dropout=dropout)
+        self.norm1 = nn.LayerNorm(dim)
+        self.ff    = nn.Sequential(
+            nn.Linear(dim, dim * 2), nn.GELU(), nn.Dropout(dropout),
+            nn.Linear(dim * 2, dim),
+        )
+        self.norm2 = nn.LayerNorm(dim)
+
+    def forward(self, views: torch.Tensor) -> torch.Tensor:
+        attn_out, _ = self.attn(views, views, views)
+        views = self.norm1(views + attn_out)
+        ff_out = self.ff(views)
+        views  = self.norm2(views + ff_out)
+        return views.mean(dim=1)
 
 class _OralHealthModel(nn.Module):
-    """Multi-view DINOv2 model — mirrors training/model.py exactly."""
+    """Multi-view DINOv2 model — mirrors training/train_model_v2.py exactly."""
 
     def __init__(self, config: Dict) -> None:
         super().__init__()
-        import timm
-
         backbone_name = config.get("backbone_model", "vit_small_patch14_dinov2.lvd142m")
-        dropout   = float(config.get("dropout", 0.45))
-        proj_dim  = int(config.get("projection_dim", 512))
-        hidden    = int(config.get("head_hidden_dim", 256))
+        dropout  = float(config.get("dropout", 0.20))
+        proj_dim = int(config.get("projection_dim", 256))
+        head_dim = int(config.get("head_hidden_dim", 128))
+        img_size = int(config.get("image_size", 336))
 
-        self.backbone = timm.create_model(backbone_name, pretrained=False, num_classes=0, global_pool="avg")
-        backbone_dim = int(getattr(self.backbone, "num_features", 384))
+        self.backbone = _create_backbone_eval(backbone_name, img_size)
+        feat_dim = self.backbone.num_features
 
-        fused_dim = backbone_dim * 3
-        self.shared_projection = nn.Sequential(
-            nn.Linear(fused_dim, proj_dim),
+        self.view_pool = ViewAttentionPool(
+            feat_dim, num_heads=config.get("view_attn_heads", 4)
+        )
+
+        self.projection = nn.Sequential(
+            nn.Linear(feat_dim, proj_dim),
             nn.LayerNorm(proj_dim),
             nn.GELU(),
             nn.Dropout(dropout),
         )
-        self.mgi_head = _TaskHead(proj_dim, config.get("num_classes_mgi", 5), hidden, dropout)
-        self.ohi_head = _TaskHead(proj_dim, config.get("num_classes_ohi", 4), hidden, dropout)
-        self.gei_head = _TaskHead(proj_dim, config.get("num_classes_gei", 4), hidden, dropout)
 
-    def _feat(self, x: torch.Tensor) -> torch.Tensor:
-        f = self.backbone(x)
-        return f[0] if isinstance(f, (list, tuple)) else f
+        self.mgi_head = _TaskHead(proj_dim, config.get("num_classes_mgi", 5) - 1, head_dim, dropout)
+        self.ohi_head = _TaskHead(proj_dim, config.get("num_classes_ohi", 3) - 1, head_dim, dropout)
+        self.gei_head = _TaskHead(proj_dim, config.get("num_classes_gei", 3) - 1, head_dim, dropout)
+
+    def _extract(self, x: torch.Tensor) -> torch.Tensor:
+        out = self.backbone(x)
+        if out.dim() == 3:
+            out = out[:, 0]
+        return out
 
     def forward(self, frontal: torch.Tensor, left: torch.Tensor, right: torch.Tensor) -> Dict[str, torch.Tensor]:
-        fused = torch.cat([self._feat(frontal), self._feat(left), self._feat(right)], dim=1)
-        shared = self.shared_projection(fused)
+        f = self._extract(frontal)
+        l = self._extract(left)
+        r = self._extract(right)
+
+        views = torch.stack([f, l, r], dim=1)
+        pooled = self.view_pool(views)
+        shared = self.projection(pooled)
+
         return {
             "mgi": self.mgi_head(shared),
             "ohi": self.ohi_head(shared),
@@ -97,14 +127,35 @@ class _OralHealthModel(nn.Module):
     def predict_scores(self, frontal, left, right):
         self.eval()
         with torch.no_grad():
-            out = self.forward(frontal, left, right)
+            outputs = self.forward(frontal, left, right)
+
         result = {}
         for key in ("mgi", "ohi", "gei"):
-            probs = torch.softmax(out[key].float(), dim=1)
+            logits = outputs[key].float()
+            probs = torch.sigmoid(logits)
+            
+            # 1) Hard predict: how many thresholds are crossed?
+            predicted = (probs > 0.5).sum(dim=1).int()
+            
+            # 2) Soft predict: synthetic class probability distribution
+            B, K_minus_1 = probs.shape
+            K = K_minus_1 + 1
+            class_probs = torch.zeros(B, K, device=probs.device)
+            class_probs[:, 0] = 1.0 - probs[:, 0]
+            for i in range(1, K_minus_1):
+                class_probs[:, i] = probs[:, i - 1] * (1.0 - probs[:, i])
+            class_probs[:, -1] = probs[:, -1]
+            
+            # Normalize and clamp safely
+            class_probs = torch.clamp(class_probs, 1e-6, 1.0)
+            class_probs = class_probs / class_probs.sum(dim=1, keepdim=True)
+            
+            confidence = class_probs.max(dim=1).values * 100.0
+            
             result[key] = {
-                "score": probs.argmax(dim=1).int(),
-                "confidence": probs.max(dim=1).values * 100.0,
-                "probs": probs,
+                "score": predicted,
+                "confidence": confidence,
+                "probs": class_probs,
             }
         return result
 
@@ -340,28 +391,8 @@ class OralHealthPredictor:
             "gei": np.ones(4) / 4,
         }
 
-    # -----------------------------------------------------------------------
-    # PI scoring (rule-based multi-colour-space)
-    # -----------------------------------------------------------------------
-
-    def _compute_pi_for_image(self, image_path: str) -> Dict[str, Any]:
-        """Compute Plaque Index for a single dental image.
-
-        Uses multi-colour-space plaque detection without requiring YOLO/SAM.
-        Analyses the full image with regional weighting.
-
-        Args:
-            image_path: Path to the image.
-
-        Returns:
-            Dict with score (0-5), ratio, label, confidence.
-        """
-        try:
-            img_rgb = _standardize_image(image_path, self.image_size)
-            return _compute_pi_full_image(img_rgb, self.pi_calibration)
-        except Exception as exc:
-            logger.warning("PI computation failed for %s: %s", image_path, exc)
-            return {"score": 0, "ratio": 0.0, "label": "Unknown", "confidence": "low"}
+        # Deprecated: PI computation is handled by pi_estimator.py via views.py
+        pass
 
     # -----------------------------------------------------------------------
     # Public predict API
@@ -419,10 +450,9 @@ class OralHealthPredictor:
             )
 
         # ── PI computation ─────────────────────────────────────────────
-        pi_frontal = self._compute_pi_for_image(frontal_path)
-        pi_left    = self._compute_pi_for_image(left_path)
-        pi_right   = self._compute_pi_for_image(right_path)
-        pi_final   = _aggregate_pi_across_views(pi_frontal, pi_left, pi_right)
+        # PI calculation is now handled explicitly in views.py
+        # using the computer-vision based inference/pi_estimator.py.
+        pi_final = {}
 
         self._last_latency = time.perf_counter() - t0
         logger.info("Predict completed in %.3fs", self._last_latency)
@@ -442,145 +472,3 @@ class OralHealthPredictor:
         return self._last_latency
 
 
-# ---------------------------------------------------------------------------
-# PI algorithm — multi-colour-space, full-image (no YOLO/SAM required)
-# ---------------------------------------------------------------------------
-
-def _compute_pi_full_image(img_rgb: np.ndarray, calibration: Dict) -> Dict[str, Any]:
-    """Compute plaque index on a full standardised dental image.
-
-    Uses four complementary plaque detection masks across HSV, LAB,
-    and relative-whiteness colour spaces.
-
-    Args:
-        img_rgb: RGB uint8 array, already standardised.
-        calibration: PI calibration dict from pi_calibration.json.
-
-    Returns:
-        Dict with score, ratio, label, confidence.
-    """
-    H, W = img_rgb.shape[:2]
-
-    hsv = cv2.cvtColor(img_rgb, cv2.COLOR_RGB2HSV)
-    lab = cv2.cvtColor(img_rgb, cv2.COLOR_RGB2LAB)
-
-    h_ch, s_ch, v_ch = hsv[:, :, 0], hsv[:, :, 1], hsv[:, :, 2]
-    l_ch, _a_ch, b_ch = lab[:, :, 0], lab[:, :, 1], lab[:, :, 2]
-    r_ch, g_ch, b_rgb = img_rgb[:, :, 0].astype(np.int32), img_rgb[:, :, 1].astype(np.int32), img_rgb[:, :, 2].astype(np.int32)
-
-    # Mask A — HSV yellow-brown (primary plaque)
-    mask_a = ((h_ch >= 10) & (h_ch <= 42) & (s_ch >= 30) & (v_ch >= 60) & (v_ch <= 230)).astype(np.uint8)
-
-    # Mask B — LAB b-channel (yellowish staining)
-    mask_b = ((b_ch > 128) & (l_ch >= 50) & (l_ch <= 210)).astype(np.uint8)
-
-    # Mask C — relative yellowness (R-B > 15 AND G-B > 8)
-    mask_c = ((r_ch - b_rgb > 15) & (g_ch - b_rgb > 8)).astype(np.uint8)
-
-    # Mask D — dark staining relative to image median
-    median_v = float(np.median(v_ch))
-    mask_d = (v_ch < median_v * 0.60).astype(np.uint8)
-
-    raw = np.clip(mask_a | mask_b | mask_c | mask_d, 0, 1)
-
-    # Morphological cleanup
-    k3 = np.ones((3, 3), np.uint8)
-    k5 = np.ones((5, 5), np.uint8)
-    raw = cv2.morphologyEx((raw * 255).astype(np.uint8), cv2.MORPH_OPEN, k3)
-    raw = cv2.morphologyEx(raw, cv2.MORPH_CLOSE, k5)
-    plaque_mask = raw > 0
-
-    # Regional weighting (gingival third is clinically most significant)
-    zone_h = H // 3
-    zone1 = plaque_mask[:zone_h, :]          # gingival third — top of image
-    zone2 = plaque_mask[zone_h:2*zone_h, :]  # middle third
-    zone3 = plaque_mask[2*zone_h:, :]        # incisal third
-
-    n1, n2, n3 = zone1.size, zone2.size, zone3.size
-    r1 = zone1.sum() / n1 if n1 > 0 else 0.0
-    r2 = zone2.sum() / n2 if n2 > 0 else 0.0
-    r3 = zone3.sum() / n3 if n3 > 0 else 0.0
-
-    weighted_ratio = float(0.5 * r1 + 0.3 * r2 + 0.2 * r3)
-
-    # Apply calibration correction
-    ref_brightness = float(calibration.get("mean_brightness", 128.0))
-    img_brightness = float(np.median(v_ch))
-    correction = 1.0
-    if ref_brightness > 0:
-        correction = np.clip(ref_brightness / max(img_brightness, 1.0), 0.7, 1.4)
-    calib_ratio = float(np.clip(weighted_ratio * correction, 0.0, 1.0))
-
-    score, label = _ratio_to_pi_score(calib_ratio)
-
-    # Confidence: lower near boundaries
-    bin_edges = [0.0, 0.05, 0.15, 0.30, 0.50, 0.70, 1.0]
-    dist_to_boundary = min(abs(calib_ratio - e) for e in bin_edges)
-    confidence_str = "high" if dist_to_boundary > 0.05 else ("medium" if dist_to_boundary > 0.02 else "low")
-
-    return {"score": score, "ratio": calib_ratio, "label": label, "confidence": confidence_str}
-
-
-def _ratio_to_pi_score(ratio: float) -> Tuple[int, str]:
-    """Map calibrated plaque ratio to 0-5 PI score and label.
-
-    Args:
-        ratio: Calibrated plaque coverage ratio [0, 1].
-
-    Returns:
-        (score, label) tuple.
-    """
-    bins = [
-        (0.05, 0, "No plaque"),
-        (0.15, 1, "Trace — thin film at gingival margin"),
-        (0.30, 2, "Mild — plaque in gingival third"),
-        (0.50, 3, "Moderate — plaque up to half the tooth"),
-        (0.70, 4, "Heavy — plaque over more than half"),
-        (1.01, 5, "Severe — abundant plaque, possible calculus"),
-    ]
-    for upper, score, label in bins:
-        if ratio < upper:
-            return score, label
-    return 5, "Severe — abundant plaque, possible calculus"
-
-
-def _aggregate_pi_across_views(
-    frontal: Dict,
-    left: Dict,
-    right: Dict,
-) -> Dict[str, Any]:
-    """Combine per-view PI results with clinical weighting.
-
-    Frontal covers more tooth surface so gets higher weight.
-
-    Args:
-        frontal, left, right: Per-view PI result dicts.
-
-    Returns:
-        Aggregated PI dict.
-    """
-    w_f, w_l, w_r = 0.4, 0.3, 0.3
-    ratios = [frontal["ratio"], left["ratio"], right["ratio"]]
-    mean_ratio = float(w_f * ratios[0] + w_l * ratios[1] + w_r * ratios[2])
-    variability = float(np.std(ratios))
-
-    score, label = _ratio_to_pi_score(mean_ratio)
-
-    conf_priority = {"high": 2, "medium": 1, "low": 0}
-    worst_conf = min(
-        [frontal["confidence"], left["confidence"], right["confidence"]],
-        key=lambda c: conf_priority.get(c, 0),
-    )
-
-    return {
-        "pi_score": score,
-        "pi_ratio": mean_ratio,
-        "pi_label": label,
-        "pi_variability": variability,
-        "pi_confidence": worst_conf,
-        "per_view": {
-            "frontal": {"score": frontal["score"], "ratio": frontal["ratio"]},
-            "left":    {"score": left["score"],    "ratio": left["ratio"]},
-            "right":   {"score": right["score"],   "ratio": right["ratio"]},
-        },
-    }
