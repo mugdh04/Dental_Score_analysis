@@ -110,8 +110,14 @@ class OrdinalLoss(nn.Module):
         expected = (probs * ordinal_indices.unsqueeze(0)).sum(dim=1)  # (B,)
         true_vals = targets.float()
 
-        # MSE between predicted expected value and true ordinal value
-        loss = F.mse_loss(expected, true_vals)
+        # Asymmetric penalty: heavily punish under-predicting severity (expected < true_vals)
+        diff = expected - true_vals
+        
+        # If diff < 0, prediction is lower than truth (false negative/under-estimation)
+        # Apply a strong multiplier (e.g., 3.0x penalty for under-estimation)
+        penalty = torch.where(diff < 0, 3.0, 1.0)
+        
+        loss = (penalty * (diff ** 2)).mean()
         return loss
 
 
@@ -252,7 +258,8 @@ class MultiTaskLoss(nn.Module):
             self.ce_gei, self.focal_gei, self.ordinal_gei, self.log_var_gei,
         )
 
-        total = w_mgi + w_ohi + w_gei
+        # Medical robustness weights applied on top of Kendall uncertainty
+        total = 0.4 * w_mgi + 0.3 * w_ohi + 0.3 * w_gei
 
         return total, {
             "mgi": r_mgi,

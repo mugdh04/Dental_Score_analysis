@@ -1,5 +1,5 @@
 {
-  "model_type": "OralHealthModelV2",
+  "model_type": "OralHealthModelV4",
   "models": [
     "C:\\Users\\Mugdh\\CodeSpace\\Dental_Score_analysis\\models\\checkpoints\\fold_1_swa.pth",
     "C:\\Users\\Mugdh\\CodeSpace\\Dental_Score_analysis\\models\\checkpoints\\fold_2_swa.pth",
@@ -7,62 +7,118 @@
     "C:\\Users\\Mugdh\\CodeSpace\\Dental_Score_analysis\\models\\checkpoints\\fold_4_swa.pth",
     "C:\\Users\\Mugdh\\CodeSpace\\Dental_Score_analysis\\models\\checkpoints\\fold_5_swa.pth"
   ],
-  "weights": [
-    1.0,
-    1.0,
-    1.0,
-    1.0,
-    1.0
-  ],
+  "avg_thresholds": {
+    "mgi": [
+      0.5440677966101695,
+      0.4752542372881356,
+      0.49186440677966103,
+      0.3613559322033898
+    ],
+    "ohi": [
+      0.6230508474576271,
+      0.4203389830508474
+    ],
+    "gei": [
+      0.40423728813559323,
+      0.15
+    ]
+  },
+  "avg_temperature": 0.5745415806770324,
+  "avg_val_f1": {
+    "mgi": 0.4680289958616786,
+    "ohi": 0.6594422893928484,
+    "gei": 0.6339071310627276
+  },
   "config": {
     "image_size": 336,
     "num_classes_mgi": 5,
     "num_classes_ohi": 3,
     "num_classes_gei": 3,
-    "backbone_model": "vit_small_patch14_dinov2.lvd142m",
-    "pretrained_backbone": true,
+    "backbone_dino": "vit_small_patch14_dinov2.lvd142m",
+    "backbone_cnn": "efficientnet_b4",
+    "pretrained": true,
     "freeze_epochs": 10,
     "unfreeze_blocks": 6,
-    "dropout": 0.2,
+    "dropout": 0.25,
     "projection_dim": 256,
     "head_hidden_dim": 128,
     "view_attn_heads": 4,
+    "dino_use_cls": true,
+    "cnn_cross_view_attn": true,
+    "supcon_dim": 128,
+    "supcon_temp": 0.07,
     "batch_size": 4,
     "grad_accum_steps": 4,
-    "num_epochs": 100,
+    "num_epochs": 150,
     "warmup_epochs": 5,
-    "lr_backbone": 5e-07,
-    "lr_projection": 5e-05,
-    "lr_heads": 0.0002,
+    "lr_backbone": 3e-07,
+    "lr_projection": 3e-05,
+    "lr_heads": 0.0001,
     "weight_decay": 0.0001,
-    "swa_start_epoch": 70,
-    "swa_lr": 3e-06,
-    "alpha_ordinal": 1.5,
-    "alpha_focal": 0.5,
-    "focal_gamma": 2.5,
-    "pos_weight_cap": 10.0,
-    "label_smooth_bce": 0.02,
+    "grad_clip_norm": 1.0,
+    "sgdr_T0": 30,
+    "sgdr_T_mult": 2,
+    "sgdr_eta_min_frac": 0.05,
+    "ema_decay": 0.998,
+    "ema_start_epoch": 12,
+    "use_ema_eval": true,
+    "swa_start_epoch": 110,
+    "pw_floor": 1.0,
+    "pw_ceil": 8.0,
+    "alpha_ordinal": 1.2,
+    "alpha_asl": 0.6,
+    "alpha_mae": 0.4,
+    "alpha_mono": 0.3,
+    "alpha_supcon": 0.4,
+    "alpha_gei_aux": 0.2,
+    "alpha_rdrop": 0.2,
+    "asl_gamma_neg": 3.0,
+    "asl_gamma_pos": 0.5,
+    "asl_clip": 0.05,
+    "task_loss_weights": {
+      "mgi": 0.45,
+      "ohi": 0.3,
+      "gei": 0.25
+    },
+    "hard_replay_frac": 0.3,
+    "hard_replay_start_epoch": 12,
+    "mixup_alpha": 0.4,
+    "mixup_prob_start": 0.2,
+    "mixup_prob_end": 0.45,
+    "cutmix_alpha": 1.0,
+    "cutmix_prob": 0.3,
+    "calib_grid_steps": 60,
+    "calib_every_epochs": 10,
+    "calib_mgi_range": [
+      0.2,
+      0.9
+    ],
+    "calib_ohi_range": [
+      0.2,
+      0.85
+    ],
+    "calib_gei_range": [
+      0.15,
+      0.9
+    ],
+    "temp_scale": true,
+    "temp_lr": 0.01,
+    "temp_max_iter": 500,
+    "ckpt_mae_penalty": 0.1,
+    "tta_steps": 7,
     "k_folds": 5,
-    "early_stopping_patience": 25,
+    "early_stopping_patience": 30,
     "seed": 42,
-    "mixup_alpha": 0.3,
-    "mixup_prob": 0.4,
-    "tta_steps": 5,
     "num_workers": 0,
     "data_dir": "C:\\Users\\Mugdh\\CodeSpace\\Dental_Score_analysis\\Thesis_Data",
     "checkpoint_dir": "C:\\Users\\Mugdh\\CodeSpace\\Dental_Score_analysis\\models\\checkpoints",
     "plots_dir": "C:\\Users\\Mugdh\\CodeSpace\\Dental_Score_analysis\\outputs\\plots"
   },
-  "avg_val_f1": {
-    "mgi": 0.2799782843492462,
-    "ohi": 0.5805228852288404,
-    "gei": 0.5242800590246234
-  },
   "label_mapping": {
-    "ohi": "classes 0,1,2  (original 2 and 3 merged into class 2)",
-    "gei": "classes 0,1,2  (original 2 and 3 merged into class 2)",
-    "mgi": "classes 0,1,2,3,4 (unchanged)"
+    "mgi": "0,1,2,3,4 (unchanged)",
+    "ohi": "0,1,2 \u2014 original 2+3 merged into 2",
+    "gei": "0,1,2 \u2014 original 2+3 merged into 2"
   },
-  "decode": "sigmoid(logits) > 0.5 \u2192 sum per threshold = predicted class",
-  "tta_steps": 5
+  "decode_instruction": "probs = sigmoid(logits / temperature);  predicted_class = sum(probs > per_threshold_list)",
+  "inference_note": "Load all models in 'models' list, run TTA on each, average sigmoid probs, then decode with avg_thresholds."
 }

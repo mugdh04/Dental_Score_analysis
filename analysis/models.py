@@ -50,6 +50,11 @@ class DentalUser(AbstractUser):
     def __str__(self):
         return f"{self.username} ({self.role})"
 
+    def save(self, *args, **kwargs):
+        if self.is_superuser:
+            self.role = self.ROLE_ADMIN
+        super().save(*args, **kwargs)
+
     @property
     def display_name(self):
         full_name = self.get_full_name().strip()
@@ -61,11 +66,16 @@ class DentalUser(AbstractUser):
 
     @property
     def is_role_dentist(self):
-        return self.role == self.ROLE_DENTIST
+        return self.role == self.ROLE_DENTIST and not self.is_superuser
 
     @property
     def is_role_patient(self):
-        return self.role == self.ROLE_PATIENT
+        return self.role == self.ROLE_PATIENT and not self.is_superuser
+
+    def get_role_display(self):
+        if self.is_superuser:
+            return "Admin"
+        return dict(self.ROLE_CHOICES).get(self.role, self.role.title())
 
 
 class PatientAnalysis(models.Model):
@@ -82,9 +92,9 @@ class PatientAnalysis(models.Model):
     REVIEW_APPROVED = 'approved'
     REVIEW_REJECTED = 'rejected'
     REVIEW_CHOICES = [
-        (REVIEW_UNREVIEWED, 'Unreviewed Reports'),
-        (REVIEW_APPROVED, 'Approved Reports'),
-        (REVIEW_REJECTED, 'Rejected Reports'),
+        (REVIEW_UNREVIEWED, 'Unreviewed'),
+        (REVIEW_APPROVED, 'Approved'),
+        (REVIEW_REJECTED, 'Edited'),
     ]
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -253,3 +263,85 @@ class ReportRevision(models.Model):
 
     def __str__(self):
         return f"Revision for {self.analysis.unique_code} at {self.created_at:%Y-%m-%d %H:%M}"
+
+
+class DentistSuggestion(models.Model):
+    """One-way guidance message sent by a dentist to a linked patient."""
+
+    dentist = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='sent_suggestions',
+        limit_choices_to={'role': DentalUser.ROLE_DENTIST},
+    )
+    patient = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='received_suggestions',
+        limit_choices_to={'role': DentalUser.ROLE_PATIENT},
+    )
+    message = models.TextField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['dentist', 'created_at']),
+            models.Index(fields=['patient', 'created_at']),
+        ]
+
+    def __str__(self):
+        return f"Suggestion by Dr. {self.dentist.display_name} to {self.patient.display_name}"
+
+
+class AppointmentRequest(models.Model):
+    """Patient appointment request lifecycle with dentist-proposed slots."""
+
+    STATUS_REQUESTED = 'requested'
+    STATUS_SLOTS_PROPOSED = 'slots_proposed'
+    STATUS_SLOT_SELECTED = 'slot_selected'
+    STATUS_CHOICES = [
+        (STATUS_REQUESTED, 'Requested'),
+        (STATUS_SLOTS_PROPOSED, 'Slots Proposed'),
+        (STATUS_SLOT_SELECTED, 'Slot Selected'),
+    ]
+
+    dentist = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='appointment_requests_received',
+        limit_choices_to={'role': DentalUser.ROLE_DENTIST},
+    )
+    patient = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='appointment_requests_sent',
+        limit_choices_to={'role': DentalUser.ROLE_PATIENT},
+    )
+    request_note = models.TextField(blank=True, default='')
+    status = models.CharField(max_length=30, choices=STATUS_CHOICES, default=STATUS_REQUESTED, db_index=True)
+
+    slot_option_1 = models.DateTimeField(null=True, blank=True)
+    slot_option_2 = models.DateTimeField(null=True, blank=True)
+    slot_option_3 = models.DateTimeField(null=True, blank=True)
+
+    selected_slot = models.DateTimeField(null=True, blank=True)
+    selected_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['dentist', 'status', 'created_at']),
+            models.Index(fields=['patient', 'status', 'created_at']),
+        ]
+
+    def __str__(self):
+        return f"Appointment request: {self.patient.display_name} -> Dr. {self.dentist.display_name}"
+
+    @property
+    def proposed_slots(self):
+        return [
+            slot for slot in [self.slot_option_1, self.slot_option_2, self.slot_option_3] if slot is not None
+        ]
