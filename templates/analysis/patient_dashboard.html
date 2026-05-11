@@ -1,5 +1,5 @@
 {% extends "analysis/base.html" %}
-{% block title %}Patient Dashboard - DentAI{% endblock %}
+{% block title %}DentAI - {{ user.first_name }} {{ user.last_name }}'s Portal{% endblock %}
 
 {% block content %}
 <div class="fade-in max-w-5xl mx-auto space-y-8">
@@ -24,6 +24,93 @@
     </div>
     {% endif %}
 
+    <div class="grid grid-cols-1 xl:grid-cols-2 gap-6">
+        <div class="bg-white rounded-3xl shadow-sm border border-gray-100 p-6 space-y-5">
+            <div class="flex items-center gap-3 pb-3 border-b border-gray-100">
+                <div class="p-2 bg-teal-100 text-teal-700 rounded-lg">
+                    <i data-lucide="stethoscope" class="w-5 h-5"></i>
+                </div>
+                <h3 class="text-xl font-bold text-gray-800">Your Dentist and Appointment Desk</h3>
+            </div>
+
+            {% if linked_dentist %}
+            <div class="rounded-2xl border border-teal-200 bg-teal-50/70 p-4">
+                <p class="text-xs uppercase tracking-wider text-teal-700 font-semibold">Linked Dentist</p>
+                <p class="text-lg font-bold text-gray-800 mt-1">Dr. {{ linked_dentist.display_name }}</p>
+                <p class="text-sm text-gray-600 mt-1">Phone: {{ linked_dentist.phone_number|default:"Not available" }}</p>
+            </div>
+
+            {% if selected_appointment %}
+            <div class="rounded-2xl border border-green-200 bg-green-50 p-4">
+                <p class="text-sm font-semibold text-green-700">Selected Appointment Slot</p>
+                <p class="text-base font-bold text-green-800 mt-1">{{ selected_appointment.selected_slot|date:"l, d M Y h:i A" }}</p>
+            </div>
+            {% endif %}
+
+            {% if active_appointment_request %}
+                {% if active_appointment_request.status == 'requested' %}
+                <div class="rounded-2xl border border-orange-200 bg-orange-50 p-4">
+                    <p class="text-sm font-semibold text-orange-700">Appointment Request Sent</p>
+                    <p class="text-sm text-orange-800 mt-1">Your dentist has been notified and will share 3 time slots soon.</p>
+                    <p class="text-xs text-orange-700 mt-2">Requested on {{ active_appointment_request.created_at|date:"l, d M Y h:i A" }}</p>
+                </div>
+                {% elif active_appointment_request.status == 'slots_proposed' and slot_selection_form %}
+                <div class="rounded-2xl border border-blue-200 bg-blue-50 p-4">
+                    <p class="text-sm font-semibold text-blue-700 mb-2">Choose Your Appointment Slot</p>
+                    <form method="post" action="{% url 'analysis:select_appointment_slot' active_appointment_request.id %}" class="space-y-3">
+                        {% csrf_token %}
+                        <div class="text-sm text-gray-700 space-y-2">
+                            {{ slot_selection_form.selected_slot_key }}
+                        </div>
+                        <button type="submit" class="rounded-xl bg-blue-600 px-4 py-2.5 text-white font-semibold hover:bg-blue-700 transition-all">
+                            Confirm Selected Slot
+                        </button>
+                    </form>
+                </div>
+                {% endif %}
+            {% else %}
+            <form method="post" action="{% url 'analysis:request_appointment' %}" class="space-y-3">
+                {% csrf_token %}
+                <label class="block text-sm font-semibold text-gray-700">Request Appointment</label>
+                {{ appointment_request_form.request_note }}
+                <button type="submit" class="rounded-xl bg-teal-600 px-4 py-2.5 text-white font-semibold hover:bg-teal-700 transition-all">
+                    Ask for Appointment
+                </button>
+            </form>
+            {% endif %}
+            {% else %}
+            <div class="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+                No dentist is linked to your account yet. Please contact admin or clinic staff.
+            </div>
+            {% endif %}
+        </div>
+
+        <div class="bg-white rounded-3xl shadow-sm border border-gray-100 p-6">
+            <div class="flex items-center gap-3 pb-3 border-b border-gray-100 mb-4">
+                <div class="p-2 bg-indigo-100 text-indigo-700 rounded-lg">
+                    <i data-lucide="message-circle-more" class="w-5 h-5"></i>
+                </div>
+                <h3 class="text-xl font-bold text-gray-800">Suggestions from Your Dentist</h3>
+            </div>
+
+            <div class="space-y-3 max-h-[390px] overflow-y-auto pr-1">
+                {% for suggestion in recent_suggestions %}
+                <div class="rounded-xl border border-gray-200 bg-gray-50 p-4">
+                    <div class="flex items-center justify-between gap-3">
+                        <p class="text-sm font-semibold text-gray-800">Dr. {{ suggestion.dentist.display_name }}</p>
+                        <p class="text-xs text-gray-500">{{ suggestion.created_at|date:"l, d M Y h:i A" }}</p>
+                    </div>
+                    <p class="text-sm text-gray-700 mt-2 leading-relaxed">{{ suggestion.message }}</p>
+                </div>
+                {% empty %}
+                <div class="rounded-xl border border-dashed border-gray-200 p-6 text-center text-sm text-gray-500">
+                    No suggestions received yet.
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+
     <div class="bg-white rounded-3xl shadow-sm border border-gray-100 overflow-hidden">
         <div class="px-8 py-6 border-b border-gray-100 flex items-center gap-3 bg-gray-50/50">
             <div class="p-2 bg-blue-100 text-blue-600 rounded-lg shadow-sm border border-blue-200">
@@ -38,10 +125,8 @@
                 <div class="group border border-gray-200 rounded-2xl overflow-hidden hover:shadow-xl transition-all flex flex-col h-full bg-white relative transform hover:-translate-y-1">
                     
                     <!-- Decorative Ribbon for Review Status -->
-                    {% if r.review_status == 'approved' %}
-                    <div class="absolute -right-12 top-6 bg-green-500 text-white text-[10px] font-bold py-1 px-12 transform rotate-45 shadow-sm z-10">APPROVED</div>
-                    {% elif r.review_status == 'rejected' %}
-                    <div class="absolute -right-12 top-6 bg-red-500 text-white text-[10px] font-bold py-1 px-12 transform rotate-45 shadow-sm z-10">REJECTED</div>
+                    {% if r.review_status == 'approved' or r.review_status == 'rejected' %}
+                    <div class="absolute -right-12 top-6 bg-blue-500 text-white text-[10px] font-bold py-1 px-12 transform rotate-45 shadow-sm z-10">REVIEWED</div>
                     {% else %}
                     <div class="absolute -right-12 top-6 bg-yellow-400 text-yellow-900 text-[10px] font-bold py-1 px-12 transform rotate-45 shadow-sm z-10">PENDING</div>
                     {% endif %}
