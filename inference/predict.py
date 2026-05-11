@@ -21,7 +21,7 @@ import logging
 import os
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import cv2
 import numpy as np
@@ -32,6 +32,98 @@ import albumentations as A
 from albumentations.pytorch import ToTensorV2
 
 logger = logging.getLogger(__name__)
+
+ThresholdValue = Union[float, List[float], Tuple[float, ...]]
+
+
+def _is_sequence(value: Any) -> bool:
+    return isinstance(value, (list, tuple, np.ndarray))
+
+
+def _coerce_threshold_value(value: Any, default: float = 0.5) -> ThresholdValue:
+    if _is_sequence(value):
+        seq = [float(v) for v in list(value)]
+        return seq if seq else default
+    try:
+        return float(value)
+    except Exception:
+        return default
+
+
+def _format_thresholds(value: ThresholdValue) -> str:
+    if _is_sequence(value):
+        return "[" + ",".join(f"{float(v):.3f}" for v in list(value)) + "]"
+    try:
+        return f"{float(value):.3f}"
+    except Exception:
+        return "0.500"
+
+
+def _ordinal_to_class_probs(ordinal_probs: torch.Tensor) -> torch.Tensor:
+    """Convert cumulative ordinal probabilities to class probabilities."""
+    bsz = ordinal_probs.shape[0]
+    ones = torch.ones(bsz, 1, device=ordinal_probs.device, dtype=ordinal_probs.dtype)
+    zeros = torch.zeros(bsz, 1, device=ordinal_probs.device, dtype=ordinal_probs.dtype)
+    cum_full = torch.cat([ones, ordinal_probs, zeros], dim=1)
+    class_probs = (cum_full[:, :-1] - cum_full[:, 1:]).clamp(min=1e-8)
+    return class_probs / class_probs.sum(dim=1, keepdim=True)
+
+
+def _decode_ordinal_probs(
+    probs: torch.Tensor,
+    thresholds: ThresholdValue,
+    task: str = "",
+) -> torch.Tensor:
+    if thresholds is None:
+        thresholds = 0.5
+    if _is_sequence(thresholds):
+        thr_list = [float(v) for v in list(thresholds)]
+        if len(thr_list) != probs.shape[1]:
+            fallback = float(np.mean(thr_list)) if thr_list else 0.5
+            logger.warning(
+                "Threshold length mismatch for %s (got %d, expected %d); using scalar %.3f",
+                task,
+                len(thr_list),
+                probs.shape[1],
+                fallback,
+            )
+            return (probs > fallback).sum(dim=1).long()
+        thr_t = torch.tensor(thr_list, dtype=probs.dtype, device=probs.device)
+        return (probs > thr_t.unsqueeze(0)).sum(dim=1).long()
+    try:
+        thr = float(thresholds)
+    except Exception:
+        thr = 0.5
+    return (probs > thr).sum(dim=1).long()
+
+
+def _decode_ordinal_probs_np(
+    probs: np.ndarray,
+    thresholds: ThresholdValue,
+    task: str = "",
+) -> int:
+    p = np.asarray(probs, dtype=float).reshape(-1)
+    if thresholds is None:
+        thresholds = 0.5
+    if _is_sequence(thresholds):
+        thr_list = [float(v) for v in list(thresholds)]
+        if len(thr_list) != p.size:
+            fallback = float(np.mean(thr_list)) if thr_list else 0.5
+            logger.warning(
+                "Threshold length mismatch for %s (got %d, expected %d); using scalar %.3f",
+                task,
+                len(thr_list),
+                p.size,
+                fallback,
+            )
+            return int((p > fallback).sum())
+        thr = np.asarray(thr_list, dtype=float)
+        return int((p > thr).sum())
+    try:
+        thr = float(thresholds)
+    except Exception:
+        thr = 0.5
+    return int((p > thr).sum())
 
 # ---------------------------------------------------------------------------
 # Internal: Multi-view OralHealthModel (matches training/model.py)
@@ -53,7 +145,27 @@ class _TaskHead(nn.Module):
 
 def _create_backbone_eval(name: str, img_size: int) -> nn.Module:
     import timm
+    if "efficientnet" in name.lower() or "resnet" in name.lower():
+        return timm.create_model(name, pretrained=False, num_classes=0, global_pool="avg")
     return timm.create_model(name, pretrained=False, img_size=img_size, num_classes=0, global_pool="avg")
+
+
+def _create_dino_tokens(name: str, img_size: int) -> nn.Module:
+    """Create DINOv2 backbone that returns token sequences (global_pool="")."""
+    import timm
+    return timm.create_model(name, pretrained=False, img_size=img_size, num_classes=0, global_pool="")
+
+
+def _extract_dino_features(backbone: nn.Module, x: torch.Tensor, use_cls: bool) -> torch.Tensor:
+    """Extract CLS+patch-avg or patch-avg features from a DINOv2 backbone."""
+    out = backbone(x)
+    if out.dim() == 2:
+        return out
+    cls_tok = out[:, 0, :]
+    patch_avg = out[:, 1:, :].mean(1)
+    if use_cls:
+        return torch.cat([cls_tok, patch_avg], dim=1)
+    return patch_avg
 
 class ViewAttentionPool(nn.Module):
     """Self-attention over the 3 intra-oral views, then mean-pool."""
@@ -75,44 +187,86 @@ class ViewAttentionPool(nn.Module):
         return views.mean(dim=1)
 
 class _OralHealthModel(nn.Module):
-    """Multi-view DINOv2 model — mirrors training/train_model_v2.py exactly."""
+    """Inference model supporting both v2 and v3 checkpoint architectures."""
 
     def __init__(self, config: Dict) -> None:
         super().__init__()
-        backbone_name = config.get("backbone_model", "vit_small_patch14_dinov2.lvd142m")
         dropout  = float(config.get("dropout", 0.20))
         proj_dim = int(config.get("projection_dim", 256))
         head_dim = int(config.get("head_hidden_dim", 128))
         img_size = int(config.get("image_size", 336))
 
-        self.backbone = _create_backbone_eval(backbone_name, img_size)
-        feat_dim = self.backbone.num_features
+        self.is_v3 = ("backbone_dino" in config) or ("backbone_cnn" in config)
 
-        self.view_pool = ViewAttentionPool(
-            feat_dim, num_heads=config.get("view_attn_heads", 4)
-        )
+        if self.is_v3:
+            dino_name = config.get("backbone_dino", "vit_small_patch14_dinov2.lvd142m")
+            cnn_name  = config.get("backbone_cnn", "efficientnet_b4")
+            self.dino = _create_backbone_eval(dino_name, img_size)
+            self.cnn  = _create_backbone_eval(cnn_name, img_size)
 
-        self.projection = nn.Sequential(
-            nn.Linear(feat_dim, proj_dim),
-            nn.LayerNorm(proj_dim),
-            nn.GELU(),
-            nn.Dropout(dropout),
-        )
+            dino_dim = self.dino.num_features
+            cnn_dim  = self.cnn.num_features
+            fused_dim = dino_dim + cnn_dim
 
-        self.mgi_head = _TaskHead(proj_dim, config.get("num_classes_mgi", 5) - 1, head_dim, dropout)
-        self.ohi_head = _TaskHead(proj_dim, config.get("num_classes_ohi", 3) - 1, head_dim, dropout)
-        self.gei_head = _TaskHead(proj_dim, config.get("num_classes_gei", 3) - 1, head_dim, dropout)
+            self.view_pool = ViewAttentionPool(
+                dino_dim, num_heads=config.get("view_attn_heads", 4)
+            )
+            self.projection = nn.Sequential(
+                nn.Linear(fused_dim, proj_dim),
+                nn.LayerNorm(proj_dim),
+                nn.GELU(),
+                nn.Dropout(dropout),
+            )
+            self.mgi_head = _TaskHead(proj_dim, config.get("num_classes_mgi", 5) - 1, head_dim, dropout)
+            self.ohi_head = _TaskHead(proj_dim, config.get("num_classes_ohi", 3) - 1, head_dim, dropout)
+            self.gei_head = _TaskHead(proj_dim, config.get("num_classes_gei", 3) - 1, head_dim, dropout)
+            self.gei_aux  = _TaskHead(proj_dim, 1, 64, dropout)
+        else:
+            backbone_name = config.get("backbone_model", "vit_small_patch14_dinov2.lvd142m")
+            self.backbone = _create_backbone_eval(backbone_name, img_size)
+            feat_dim = self.backbone.num_features
 
-    def _extract(self, x: torch.Tensor) -> torch.Tensor:
-        out = self.backbone(x)
-        if out.dim() == 3:
-            out = out[:, 0]
-        return out
+            self.view_pool = ViewAttentionPool(
+                feat_dim, num_heads=config.get("view_attn_heads", 4)
+            )
+            self.projection = nn.Sequential(
+                nn.Linear(feat_dim, proj_dim),
+                nn.LayerNorm(proj_dim),
+                nn.GELU(),
+                nn.Dropout(dropout),
+            )
+            self.mgi_head = _TaskHead(proj_dim, config.get("num_classes_mgi", 5) - 1, head_dim, dropout)
+            self.ohi_head = _TaskHead(proj_dim, config.get("num_classes_ohi", 3) - 1, head_dim, dropout)
+            self.gei_head = _TaskHead(proj_dim, config.get("num_classes_gei", 3) - 1, head_dim, dropout)
+
+    @staticmethod
+    def _extract_feature(backbone: nn.Module, x: torch.Tensor) -> torch.Tensor:
+        out = backbone(x)
+        return out[:, 0] if out.dim() == 3 else out
 
     def forward(self, frontal: torch.Tensor, left: torch.Tensor, right: torch.Tensor) -> Dict[str, torch.Tensor]:
-        f = self._extract(frontal)
-        l = self._extract(left)
-        r = self._extract(right)
+        if self.is_v3:
+            fd = self._extract_feature(self.dino, frontal)
+            ld = self._extract_feature(self.dino, left)
+            rd = self._extract_feature(self.dino, right)
+            dino_feat = self.view_pool(torch.stack([fd, ld, rd], dim=1))
+
+            fc = self._extract_feature(self.cnn, frontal)
+            lc = self._extract_feature(self.cnn, left)
+            rc = self._extract_feature(self.cnn, right)
+            cnn_feat = (fc + lc + rc) / 3.0
+
+            shared = self.projection(torch.cat([dino_feat, cnn_feat], dim=1))
+            return {
+                "mgi": self.mgi_head(shared),
+                "ohi": self.ohi_head(shared),
+                "gei": self.gei_head(shared),
+                "gei_aux": self.gei_aux(shared),
+            }
+
+        f = self._extract_feature(self.backbone, frontal)
+        l = self._extract_feature(self.backbone, left)
+        r = self._extract_feature(self.backbone, right)
 
         views = torch.stack([f, l, r], dim=1)
         pooled = self.view_pool(views)
@@ -124,38 +278,167 @@ class _OralHealthModel(nn.Module):
             "gei": self.gei_head(shared),
         }
 
-    def predict_scores(self, frontal, left, right):
+    def predict_scores(
+        self,
+        frontal,
+        left,
+        right,
+        thresholds: Optional[Dict[str, ThresholdValue]] = None,
+        temperature: float = 1.0,
+    ):
         self.eval()
+        thresholds = thresholds or {}
+        temp = max(float(temperature), 1e-4)
         with torch.no_grad():
             outputs = self.forward(frontal, left, right)
 
         result = {}
         for key in ("mgi", "ohi", "gei"):
             logits = outputs[key].float()
-            probs = torch.sigmoid(logits)
-            
-            # 1) Hard predict: how many thresholds are crossed?
-            predicted = (probs > 0.5).sum(dim=1).int()
-            
-            # 2) Soft predict: synthetic class probability distribution
-            B, K_minus_1 = probs.shape
-            K = K_minus_1 + 1
-            class_probs = torch.zeros(B, K, device=probs.device)
-            class_probs[:, 0] = 1.0 - probs[:, 0]
-            for i in range(1, K_minus_1):
-                class_probs[:, i] = probs[:, i - 1] * (1.0 - probs[:, i])
-            class_probs[:, -1] = probs[:, -1]
-            
-            # Normalize and clamp safely
-            class_probs = torch.clamp(class_probs, 1e-6, 1.0)
-            class_probs = class_probs / class_probs.sum(dim=1, keepdim=True)
+            ord_probs = torch.sigmoid(logits / temp)
+            thr = thresholds.get(key, 0.5)
+            predicted = _decode_ordinal_probs(ord_probs, thr, task=key)
+
+            class_probs = _ordinal_to_class_probs(ord_probs)
             
             confidence = class_probs.max(dim=1).values * 100.0
-            
+
             result[key] = {
                 "score": predicted,
                 "confidence": confidence,
                 "probs": class_probs,
+                "ordinal_probs": ord_probs,
+            }
+        return result
+
+
+class _OralHealthModelV4(nn.Module):
+    """Inference model aligned with training/train_model_v4.py."""
+
+    def __init__(self, config: Dict) -> None:
+        super().__init__()
+        self.use_cls = bool(config.get("dino_use_cls", True))
+        self.cnn_attn = bool(config.get("cnn_cross_view_attn", True))
+
+        dropout = float(config.get("dropout", 0.25))
+        proj_dim = int(config.get("projection_dim", 256))
+        head_dim = int(config.get("head_hidden_dim", 128))
+        img_size = int(config.get("image_size", 336))
+
+        dino_name = config.get("backbone_dino", "vit_small_patch14_dinov2.lvd142m")
+        cnn_name = config.get("backbone_cnn", "efficientnet_b4")
+
+        self.dino = _create_dino_tokens(dino_name, img_size)
+        self.cnn = _create_backbone_eval(cnn_name, img_size)
+
+        dino_base = int(getattr(self.dino, "num_features", 384))
+        dino_dim = dino_base * 2 if self.use_cls else dino_base
+        cnn_dim = int(getattr(self.cnn, "num_features", 1792))
+        fused_dim = dino_dim + cnn_dim
+
+        self.dino_pool = ViewAttentionPool(
+            dino_dim, num_heads=config.get("view_attn_heads", 4)
+        )
+        if self.cnn_attn:
+            self.cnn_pool = ViewAttentionPool(
+                cnn_dim, num_heads=config.get("view_attn_heads", 4)
+            )
+
+        self.proj = nn.Sequential(
+            nn.Linear(fused_dim, proj_dim),
+            nn.LayerNorm(proj_dim),
+            nn.GELU(),
+            nn.Dropout(dropout),
+        )
+
+        sc_dim = int(config.get("supcon_dim", 128))
+        for t in ("mgi", "ohi", "gei"):
+            setattr(
+                self,
+                f"sc_proj_{t}",
+                nn.Sequential(
+                    nn.Linear(proj_dim, sc_dim),
+                    nn.ReLU(inplace=True),
+                    nn.Linear(sc_dim, sc_dim),
+                ),
+            )
+
+        self.mgi_head = _TaskHead(proj_dim, config.get("num_classes_mgi", 5) - 1, head_dim, dropout)
+        self.ohi_head = _TaskHead(proj_dim, config.get("num_classes_ohi", 3) - 1, head_dim, dropout)
+        self.gei_head = _TaskHead(proj_dim, config.get("num_classes_gei", 3) - 1, head_dim, dropout)
+        self.gei_aux = _TaskHead(proj_dim, 1, 64, dropout)
+
+    def _dino_feat(self, x: torch.Tensor) -> torch.Tensor:
+        return _extract_dino_features(self.dino, x, self.use_cls)
+
+    def _cnn_feat(self, x: torch.Tensor) -> torch.Tensor:
+        return self.cnn(x)
+
+    def _fuse_views(self, frontal, left, right) -> torch.Tensor:
+        d_stack = torch.stack([
+            self._dino_feat(frontal),
+            self._dino_feat(left),
+            self._dino_feat(right),
+        ], dim=1)
+        d_out = self.dino_pool(d_stack)
+
+        c_stack = torch.stack([
+            self._cnn_feat(frontal),
+            self._cnn_feat(left),
+            self._cnn_feat(right),
+        ], dim=1)
+        c_out = self.cnn_pool(c_stack) if self.cnn_attn else c_stack.mean(dim=1)
+
+        return torch.cat([d_out, c_out], dim=1)
+
+    def forward(self, frontal, left, right, return_features: bool = False):
+        fused = self._fuse_views(frontal, left, right)
+        proj = self.proj(fused)
+
+        out = {
+            "mgi": self.mgi_head(proj),
+            "ohi": self.ohi_head(proj),
+            "gei": self.gei_head(proj),
+            "gei_aux": self.gei_aux(proj),
+        }
+
+        if return_features:
+            out["features"] = {
+                t: F.normalize(getattr(self, f"sc_proj_{t}")(proj), dim=1)
+                for t in ("mgi", "ohi", "gei")
+            }
+
+        return out
+
+    def predict_scores(
+        self,
+        frontal,
+        left,
+        right,
+        thresholds: Optional[Dict[str, ThresholdValue]] = None,
+        temperature: float = 1.0,
+    ):
+        self.eval()
+        thresholds = thresholds or {}
+        temp = max(float(temperature), 1e-4)
+        with torch.no_grad():
+            outputs = self.forward(frontal, left, right)
+
+        result = {}
+        for key in ("mgi", "ohi", "gei"):
+            logits = outputs[key].float()
+            ord_probs = torch.sigmoid(logits / temp)
+            thr = thresholds.get(key, 0.5)
+            predicted = _decode_ordinal_probs(ord_probs, thr, task=key)
+
+            class_probs = _ordinal_to_class_probs(ord_probs)
+            confidence = class_probs.max(dim=1).values * 100.0
+
+            result[key] = {
+                "score": predicted,
+                "confidence": confidence,
+                "probs": class_probs,
+                "ordinal_probs": ord_probs,
             }
         return result
 
@@ -237,8 +520,14 @@ class OralHealthPredictor:
         device: str = "cpu",
     ) -> None:
         self.device = torch.device(device)
-        self.models: List[_OralHealthModel] = []
+        self.models: List[nn.Module] = []
         self.model_config: Dict = {}
+        self.decode_thresholds: Dict[str, ThresholdValue] = {
+            "mgi": 0.5,
+            "ohi": 0.5,
+            "gei": 0.5,
+        }
+        self.decode_temperature: float = 1.0
         self.image_size: int = 336
         self._last_latency: float = 0.0
 
@@ -270,7 +559,25 @@ class OralHealthPredictor:
         with open(ensemble_path) as f:
             ec = json.load(f)
 
-        self.model_config = ec.get("config", {
+        thr_cfg = ec.get("avg_thresholds") or ec.get("decode_thresholds_global") or {}
+        self.decode_thresholds = {
+            task: _coerce_threshold_value(thr_cfg.get(task, 0.5))
+            for task in ("mgi", "ohi", "gei")
+        }
+        self.decode_temperature = float(ec.get("avg_temperature", 1.0))
+        logger.info(
+            "Decode thresholds: mgi=%s ohi=%s gei=%s (temp=%.3f)",
+            _format_thresholds(self.decode_thresholds["mgi"]),
+            _format_thresholds(self.decode_thresholds["ohi"]),
+            _format_thresholds(self.decode_thresholds["gei"]),
+            self.decode_temperature,
+        )
+
+        model_type = str(ec.get("model_type", "")).lower()
+        raw_config = ec.get("config")
+        use_v4 = "oralhealthmodelv4" in model_type or model_type.endswith("v4")
+
+        default_v3 = {
             "backbone_model": "vit_small_patch14_dinov2.lvd142m",
             "dropout": 0.45,
             "projection_dim": 512,
@@ -279,25 +586,72 @@ class OralHealthPredictor:
             "num_classes_ohi": 4,
             "num_classes_gei": 4,
             "image_size": 336,
-        })
+        }
+        default_v4 = {
+            "backbone_dino": "vit_small_patch14_dinov2.lvd142m",
+            "backbone_cnn": "efficientnet_b4",
+            "pretrained": False,
+            "dropout": 0.25,
+            "projection_dim": 256,
+            "head_hidden_dim": 128,
+            "num_classes_mgi": 5,
+            "num_classes_ohi": 3,
+            "num_classes_gei": 3,
+            "image_size": 336,
+            "view_attn_heads": 4,
+            "dino_use_cls": True,
+            "cnn_cross_view_attn": True,
+            "supcon_dim": 128,
+        }
+
+        if raw_config is None:
+            self.model_config = default_v4 if use_v4 else default_v3
+        else:
+            self.model_config = raw_config
+            if not use_v4:
+                use_v4 = any(
+                    key in self.model_config
+                    for key in ("supcon_dim", "dino_use_cls", "cnn_cross_view_attn")
+                )
+
         self.image_size = int(self.model_config.get("image_size", 336))
+
+        model_cls = _OralHealthModelV4 if use_v4 else _OralHealthModel
 
         model_paths = ec.get("models", [])
         loaded = 0
         for mp in model_paths:
             mp_path = Path(mp)
+            if not mp_path.is_absolute():
+                mp_path = (ensemble_path.parent / mp_path).resolve()
             if not mp_path.exists():
                 logger.warning("Checkpoint missing: %s", mp)
                 continue
             try:
-                model = _OralHealthModel(self.model_config).to(self.device)
+                model = model_cls(self.model_config).to(self.device)
                 ckpt = torch.load(str(mp_path), map_location=self.device, weights_only=False)
 
                 # Support both full checkpoint dicts and raw state dicts
                 if "model_state_dict" in ckpt:
-                    model.load_state_dict(ckpt["model_state_dict"], strict=False)
+                    state = ckpt["model_state_dict"]
                 else:
-                    model.load_state_dict(ckpt, strict=False)
+                    state = ckpt
+
+                if any(k.startswith("module.") for k in state):
+                    state = {
+                        (k[7:] if k.startswith("module.") else k): v
+                        for k, v in state.items()
+                    }
+
+                missing, unexpected = model.load_state_dict(state, strict=False)
+                loaded_params = len(model.state_dict()) - len(missing)
+                if loaded_params == 0:
+                    raise RuntimeError("checkpoint incompatible with configured architecture")
+
+                if missing:
+                    logger.info("Model loaded with %d missing keys", len(missing))
+                if unexpected:
+                    logger.info("Model loaded with %d unexpected keys", len(unexpected))
 
                 model.eval()
                 self.models.append(model)
@@ -364,31 +718,53 @@ class OralHealthPredictor:
         frontal_tensor: torch.Tensor,
         left_tensor: torch.Tensor,
         right_tensor: torch.Tensor,
-    ) -> Dict[str, np.ndarray]:
+    ) -> Dict[str, Dict[str, Any]]:
         """Run ensemble inference for a 3-view triplet.
 
         Args:
             frontal_tensor, left_tensor, right_tensor: (1, C, H, W) tensors.
 
         Returns:
-            Dict: task → averaged softmax probability vector (numpy array).
+            Dict: task → score + averaged class probabilities.
         """
         # NEW multi-view models
         if self.models:
-            all_probs: Dict[str, List[np.ndarray]] = {"mgi": [], "ohi": [], "gei": []}
+            all_cls_probs: Dict[str, List[np.ndarray]] = {"mgi": [], "ohi": [], "gei": []}
+            all_ord_probs: Dict[str, List[np.ndarray]] = {"mgi": [], "ohi": [], "gei": []}
             with torch.no_grad():
                 for model in self.models:
-                    results = model.predict_scores(frontal_tensor, left_tensor, right_tensor)
+                    results = model.predict_scores(
+                        frontal_tensor,
+                        left_tensor,
+                        right_tensor,
+                        thresholds=self.decode_thresholds,
+                        temperature=self.decode_temperature,
+                    )
                     for task in ("mgi", "ohi", "gei"):
-                        all_probs[task].append(results[task]["probs"].cpu().numpy()[0])
-            return {task: np.mean(probs_list, axis=0) for task, probs_list in all_probs.items()}
+                        all_cls_probs[task].append(results[task]["probs"].cpu().numpy()[0])
+                        all_ord_probs[task].append(results[task]["ordinal_probs"].cpu().numpy()[0])
+
+            out: Dict[str, Dict[str, Any]] = {}
+            for task in ("mgi", "ohi", "gei"):
+                p_cls = np.mean(all_cls_probs[task], axis=0)
+                p_ord = np.mean(all_ord_probs[task], axis=0)
+                thr = self.decode_thresholds.get(task, 0.5)
+                score = _decode_ordinal_probs_np(p_ord, thr, task=task)
+                out[task] = {
+                    "score": score,
+                    "probabilities": p_cls,
+                }
+            return out
 
         # No model available — return uniform distribution
         logger.error("No models available for inference. Returning uniform probabilities.")
+        n_mgi = int(self.model_config.get("num_classes_mgi", 5))
+        n_ohi = int(self.model_config.get("num_classes_ohi", 4))
+        n_gei = int(self.model_config.get("num_classes_gei", 4))
         return {
-            "mgi": np.ones(5) / 5,
-            "ohi": np.ones(4) / 4,
-            "gei": np.ones(4) / 4,
+            "mgi": {"score": 0, "probabilities": np.ones(n_mgi) / max(n_mgi, 1)},
+            "ohi": {"score": 0, "probabilities": np.ones(n_ohi) / max(n_ohi, 1)},
+            "gei": {"score": 0, "probabilities": np.ones(n_gei) / max(n_gei, 1)},
         }
 
         # Deprecated: PI computation is handled by pi_estimator.py via views.py
@@ -430,12 +806,16 @@ class OralHealthPredictor:
         right_t   = self._image_to_tensor(right_path)
 
         # ── DL predictions ─────────────────────────────────────────────
-        probs = self._predict_dl(frontal_t, left_t, right_t)
+        dl_pred = self._predict_dl(frontal_t, left_t, right_t)
 
         dl_results: Dict[str, Any] = {}
         for task in ("mgi", "ohi", "gei"):
-            p = probs[task]
-            score = int(np.argmax(p))
+            p = np.asarray(dl_pred[task]["probabilities"], dtype=np.float64)
+            if p.size == 0:
+                p = np.array([1.0], dtype=np.float64)
+
+            score = int(dl_pred[task]["score"])
+            score = int(np.clip(score, 0, p.size - 1))
             confidence = float(p[score])
             dl_results[task] = {
                 "score": score,

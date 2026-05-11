@@ -1,5 +1,5 @@
 {% extends "analysis/base.html" %}
-{% block title %}Upload Dental Photographs — DentAI{% endblock %}
+{% block title %}DentAI{% endblock %}
 
 {% block content %}
 <div class="fade-in" x-data="uploadForm()">
@@ -11,8 +11,9 @@
         <p class="text-gray-500 text-lg max-w-2xl mx-auto">
             Upload three intraoral photographs to receive AI-powered predictions for 
             <span class="text-dental-600 font-semibold">MGI</span>, 
-            <span class="text-dental-600 font-semibold">OHI</span>, and 
-            <span class="text-dental-600 font-semibold">GEI</span> scores.
+            <span class="text-dental-600 font-semibold">OHI</span>, 
+            <span class="text-dental-600 font-semibold">GEI</span>, and
+            <span class="text-dental-600 font-semibold">PI</span> scores.
         </p>
         {% if user.is_role_patient %}
         <p class="text-sm text-orange-700 bg-orange-50 border border-orange-200 rounded-xl px-4 py-3 mt-4 inline-block">
@@ -212,7 +213,7 @@
     </div>
 
     <!-- Info Cards -->
-    <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mt-10 max-w-4xl mx-auto">
+    <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6 mt-10 max-w-5xl mx-auto">
         <div class="glass-card rounded-2xl p-6 text-center">
             <div class="w-12 h-12 bg-dental-50 rounded-xl mx-auto mb-3 flex items-center justify-center">
                 <i data-lucide="activity" class="w-6 h-6 text-dental-500"></i>
@@ -233,6 +234,13 @@
             </div>
             <h3 class="text-gray-800 font-semibold mb-1">GEI (0–3)</h3>
             <p class="text-gray-500 text-sm">Gingival Enlargement Index — evaluates gingival overgrowth</p>
+        </div>
+        <div class="glass-card rounded-2xl p-6 text-center">
+            <div class="w-12 h-12 bg-dental-50 rounded-xl mx-auto mb-3 flex items-center justify-center">
+                <i data-lucide="shield-plus" class="w-6 h-6 text-dental-500"></i>
+            </div>
+            <h3 class="text-gray-800 font-semibold mb-1">PI (0–5)</h3>
+            <p class="text-gray-500 text-sm">Plaque Index — estimates plaque accumulation severity</p>
         </div>
     </div>
 </div>
