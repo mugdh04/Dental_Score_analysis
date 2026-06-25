@@ -187,6 +187,134 @@ class DentistSuggestionForm(forms.Form):
         return message
 
 
+class DentistImageRequestForm(forms.Form):
+    """Form for dentists to request specific patient photographs."""
+
+    patient = forms.ModelChoiceField(
+        queryset=DentalUser.objects.none(),
+        widget=forms.Select(
+            attrs={
+                'class': 'w-full rounded-xl border border-gray-300 px-4 py-3 focus:border-dental-600 focus:outline-none bg-white',
+            }
+        ),
+    )
+    frontal_requested = forms.BooleanField(
+        required=False,
+        label='Frontal image',
+        widget=forms.CheckboxInput(
+            attrs={'class': 'h-4 w-4 text-dental-600 border-gray-300 rounded focus:ring-dental-500'}
+        ),
+    )
+    left_lateral_requested = forms.BooleanField(
+        required=False,
+        label='Left lateral image',
+        widget=forms.CheckboxInput(
+            attrs={'class': 'h-4 w-4 text-dental-600 border-gray-300 rounded focus:ring-dental-500'}
+        ),
+    )
+    right_lateral_requested = forms.BooleanField(
+        required=False,
+        label='Right lateral image',
+        widget=forms.CheckboxInput(
+            attrs={'class': 'h-4 w-4 text-dental-600 border-gray-300 rounded focus:ring-dental-500'}
+        ),
+    )
+    message = forms.CharField(
+        required=False,
+        max_length=1200,
+        widget=forms.Textarea(
+            attrs={
+                'rows': 3,
+                'class': 'w-full rounded-xl border border-gray-300 px-4 py-3 focus:border-dental-600 focus:outline-none',
+                'placeholder': 'Optional instructions for the patient (e.g. upload with ink only).',
+            }
+        ),
+    )
+
+    def __init__(self, *args, **kwargs):
+        dentist = kwargs.pop('dentist', None)
+        super().__init__(*args, **kwargs)
+
+        qs = DentalUser.objects.filter(role=DentalUser.ROLE_PATIENT).order_by('first_name', 'username')
+        if dentist is not None:
+            qs = qs.filter(dentist_owner=dentist)
+        self.fields['patient'].queryset = qs
+
+    def clean(self):
+        cleaned = super().clean()
+        if not (cleaned.get('frontal_requested') or cleaned.get('left_lateral_requested') or cleaned.get('right_lateral_requested')):
+            raise forms.ValidationError('Select at least one image view to request from the patient.')
+        return cleaned
+
+
+class RequestedImageUploadForm(forms.Form):
+    """Form used by patients to upload only the dentist-requested images."""
+
+    frontal_image = forms.ImageField(
+        required=False,
+        widget=forms.ClearableFileInput(
+            attrs={
+                'class': 'w-full rounded-xl border border-gray-300 px-4 py-3 focus:border-dental-600 focus:outline-none bg-white',
+                'accept': 'image/*',
+            }
+        ),
+        label='Frontal View',
+    )
+    left_lateral_image = forms.ImageField(
+        required=False,
+        widget=forms.ClearableFileInput(
+            attrs={
+                'class': 'w-full rounded-xl border border-gray-300 px-4 py-3 focus:border-dental-600 focus:outline-none bg-white',
+                'accept': 'image/*',
+            }
+        ),
+        label='Left Lateral View',
+    )
+    right_lateral_image = forms.ImageField(
+        required=False,
+        widget=forms.ClearableFileInput(
+            attrs={
+                'class': 'w-full rounded-xl border border-gray-300 px-4 py-3 focus:border-dental-600 focus:outline-none bg-white',
+                'accept': 'image/*',
+            }
+        ),
+        label='Right Lateral View',
+    )
+
+    def __init__(self, *args, requested=None, **kwargs):
+        self.requested = requested
+        super().__init__(*args, **kwargs)
+        if requested is not None:
+            if not requested.frontal_requested:
+                self.fields.pop('frontal_image', None)
+            if not requested.left_lateral_requested:
+                self.fields.pop('left_lateral_image', None)
+            if not requested.right_lateral_requested:
+                self.fields.pop('right_lateral_image', None)
+            requested_map = {
+                'frontal_image': requested.frontal_requested,
+                'left_lateral_image': requested.left_lateral_requested,
+                'right_lateral_image': requested.right_lateral_requested,
+            }
+            for name, should_require in requested_map.items():
+                if name in self.fields and should_require:
+                    self.fields[name].required = True
+
+    def clean(self):
+        cleaned = super().clean()
+        missing = []
+        if self.requested is not None:
+            if self.requested.frontal_requested and not cleaned.get('frontal_image'):
+                missing.append('Frontal image')
+            if self.requested.left_lateral_requested and not cleaned.get('left_lateral_image'):
+                missing.append('Left lateral image')
+            if self.requested.right_lateral_requested and not cleaned.get('right_lateral_image'):
+                missing.append('Right lateral image')
+        if missing:
+            raise forms.ValidationError(f'The following requested image(s) are required: {", ".join(missing)}.')
+        return cleaned
+
+
 class AppointmentRequestForm(forms.Form):
     """Form for patients to request an appointment from their linked dentist."""
 

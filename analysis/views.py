@@ -28,13 +28,15 @@ from .forms import (
     AppointmentSlotSelectionForm,
     AppointmentSlotsForm,
     DentistCreatePatientForm,
+    DentistImageRequestForm,
     DentistSuggestionForm,
     PatientUploadForm,
+    RequestedImageUploadForm,
     ReviewReportForm,
 )
 from datetime import timedelta
 from django.utils import timezone
-from .models import AppointmentRequest, DentalUser, DentistSuggestion, PatientAnalysis, ReportRevision
+from .models import AppointmentRequest, DentalUser, DentistImageRequest, DentistSuggestion, PatientAnalysis, ReportRevision
 
 # -----------------------------------------------------------------------------
 # Change Note (2026-04-03)
@@ -605,6 +607,16 @@ def dentist_dashboard_view(request):
     if owner:
         base_qs = base_qs.filter(dentist_owner=owner)
 
+    report_search_query = request.GET.get('patient_search', '').strip()
+    searched_reports = None
+    if report_search_query:
+        searched_reports = base_qs.filter(
+            db_models.Q(patient_user__phone_number__icontains=report_search_query)
+            | db_models.Q(patient_user__first_name__icontains=report_search_query)
+            | db_models.Q(patient_user__last_name__icontains=report_search_query)
+            | db_models.Q(patient_name__icontains=report_search_query)
+        ).order_by('-created_at')
+
     unreviewed_reports = base_qs.filter(status='completed', review_status=PatientAnalysis.REVIEW_UNREVIEWED)
     approved_reports = base_qs.filter(status='completed').filter(
         db_models.Q(review_status=PatientAnalysis.REVIEW_APPROVED) | db_models.Q(revisions__isnull=False)
@@ -616,6 +628,9 @@ def dentist_dashboard_view(request):
     awaiting_patient_selection = AppointmentRequest.objects.none()
     selected_appointments = AppointmentRequest.objects.none()
     suggestion_form = DentistSuggestionForm()
+    request_image_form = DentistImageRequestForm()
+    pending_image_requests = DentistImageRequest.objects.none()
+    completed_image_requests = DentistImageRequest.objects.none()
 
     if request.user.is_role_dentist:
         recent_suggestions = DentistSuggestion.objects.select_related('patient').filter(dentist=request.user).order_by('-created_at')[:12]
@@ -624,6 +639,15 @@ def dentist_dashboard_view(request):
         awaiting_patient_selection = appointment_qs.filter(status=AppointmentRequest.STATUS_SLOTS_PROPOSED).order_by('-updated_at')
         selected_appointments = appointment_qs.filter(status=AppointmentRequest.STATUS_SLOT_SELECTED).order_by('-selected_at', '-created_at')[:10]
         suggestion_form = DentistSuggestionForm(dentist=request.user)
+        request_image_form = DentistImageRequestForm(dentist=request.user)
+        pending_image_requests = DentistImageRequest.objects.select_related('patient').filter(
+            dentist=request.user,
+            status=DentistImageRequest.STATUS_PENDING,
+        ).order_by('-requested_at')[:8]
+        completed_image_requests = DentistImageRequest.objects.select_related('patient').filter(
+            dentist=request.user,
+            status=DentistImageRequest.STATUS_COMPLETED,
+        ).order_by('-completed_at')[:8]
 
     context = {
         'unreviewed_reports': unreviewed_reports,
@@ -635,6 +659,11 @@ def dentist_dashboard_view(request):
         'pending_slot_requests': pending_slot_requests,
         'awaiting_patient_selection': awaiting_patient_selection,
         'selected_appointments': selected_appointments,
+        'request_image_form': request_image_form,
+        'pending_image_requests': pending_image_requests,
+        'completed_image_requests': completed_image_requests,
+        'searched_reports': searched_reports,
+        'report_search_query': report_search_query,
         'generated_patient_credentials': request.session.pop('generated_patient_credentials', None),
     }
     return render(request, 'analysis/dentist_dashboard.html', context)
@@ -680,6 +709,17 @@ def patient_dashboard_view(request):
         if active_appointment_request and active_appointment_request.status == AppointmentRequest.STATUS_SLOTS_PROPOSED:
             slot_selection_form = AppointmentSlotSelectionForm(appointment=active_appointment_request)
 
+        latest_reviewed_report = reports.filter(
+            review_status__in=[PatientAnalysis.REVIEW_APPROVED, PatientAnalysis.REVIEW_REJECTED]
+        ).order_by('-reviewed_at', '-created_at').first()
+        pending_image_request = DentistImageRequest.objects.filter(
+            patient=request.user,
+            status=DentistImageRequest.STATUS_PENDING,
+        ).order_by('-requested_at').first()
+    else:
+        latest_reviewed_report = None
+        pending_image_request = None
+
     context = {
         'reports': reports,
         'linked_dentist': linked_dentist,
@@ -688,6 +728,8 @@ def patient_dashboard_view(request):
         'active_appointment_request': active_appointment_request,
         'selected_appointment': selected_appointment,
         'slot_selection_form': slot_selection_form,
+        'latest_reviewed_report': latest_reviewed_report,
+        'pending_image_request': pending_image_request,
     }
     return render(request, 'analysis/patient_dashboard.html', context)
 
@@ -760,6 +802,82 @@ def send_suggestion_view(request):
     )
     messages.success(request, f'Suggestion sent to {patient.display_name}.')
     return redirect('analysis:dentist_dashboard')
+
+
+@login_required
+def request_images_view(request):
+    if not request.user.is_role_dentist:
+        return HttpResponse('Access denied.', status=403)
+
+    if request.method != 'POST':
+        return redirect('analysis:dentist_dashboard')
+
+    form = DentistImageRequestForm(request.POST, dentist=request.user)
+    if not form.is_valid():
+        for field, errors in form.errors.items():
+            for error in errors:
+                messages.error(request, error)
+        return redirect('analysis:dentist_dashboard')
+
+    patient = form.cleaned_data['patient']
+    if not _is_linked_patient(request.user, patient):
+        return HttpResponse('Access denied.', status=403)
+
+    DentistImageRequest.objects.create(
+        dentist=request.user,
+        patient=patient,
+        frontal_requested=form.cleaned_data['frontal_requested'],
+        left_lateral_requested=form.cleaned_data['left_lateral_requested'],
+        right_lateral_requested=form.cleaned_data['right_lateral_requested'],
+        message=form.cleaned_data.get('message', '').strip(),
+    )
+    messages.success(request, f'Image request sent to {patient.display_name}.')
+    return redirect('analysis:dentist_dashboard')
+
+
+@login_required
+def upload_requested_images_view(request, request_id):
+    image_request = get_object_or_404(DentistImageRequest, pk=request_id)
+    if not request.user.is_role_patient or image_request.patient_id != request.user.id:
+        return HttpResponse('Access denied.', status=403)
+
+    if image_request.is_completed:
+        messages.info(request, 'This image request has already been completed.')
+        return redirect('analysis:patient_dashboard')
+
+    if request.method == 'POST':
+        form = RequestedImageUploadForm(request.POST, request.FILES, requested=image_request)
+        if form.is_valid():
+            if image_request.frontal_requested:
+                image_request.frontal_image = form.cleaned_data.get('frontal_image')
+            if image_request.left_lateral_requested:
+                image_request.left_lateral_image = form.cleaned_data.get('left_lateral_image')
+            if image_request.right_lateral_requested:
+                image_request.right_lateral_image = form.cleaned_data.get('right_lateral_image')
+            image_request.status = DentistImageRequest.STATUS_COMPLETED
+            image_request.save()
+            messages.success(request, 'Requested images uploaded successfully. Your dentist will receive them shortly.')
+            return redirect('analysis:patient_dashboard')
+    else:
+        form = RequestedImageUploadForm(requested=image_request)
+
+    return render(request, 'analysis/requested_image_upload.html', {
+        'form': form,
+        'image_request': image_request,
+    })
+
+
+@login_required
+def view_requested_images(request, request_id):
+    image_request = get_object_or_404(DentistImageRequest, pk=request_id)
+    if not request.user.is_role_dentist and not request.user.is_role_admin:
+        return HttpResponse('Access denied.', status=403)
+    if request.user.is_role_dentist and image_request.dentist_id != request.user.id:
+        return HttpResponse('Access denied.', status=403)
+
+    return render(request, 'analysis/view_requested_images.html', {
+        'image_request': image_request,
+    })
 
 
 @login_required

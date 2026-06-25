@@ -1,0 +1,48 @@
+{% extends 'analysis/base.html' %}
+
+{% block content %}
+<div class="max-w-5xl mx-auto py-10 px-4 sm:px-6 lg:px-8">
+    <div class="bg-white rounded-3xl border border-gray-100 shadow-sm p-6">
+        <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+            <div>
+                <h1 class="text-2xl font-bold text-gray-900">Uploaded Images</h1>
+                <p class="text-sm text-gray-600 mt-2">Patient: {{ image_request.patient.display_name }}</p>
+                <p class="text-sm text-gray-600">Requested: {{ image_request.requested_summary }}</p>
+                <p class="text-sm text-gray-500 mt-1">Requested on {{ image_request.requested_at|date:"d M Y, h:i A" }}</p>
+            </div>
+            <div class="text-right">
+                <a href="{% url 'analysis:dentist_dashboard' %}" class="inline-flex items-center rounded-xl border border-gray-200 bg-white px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50 transition-all">Back to dashboard</a>
+            </div>
+        </div>
+
+        <div class="mt-8 grid gap-6 sm:grid-cols-3">
+            {% if image_request.frontal_image %}
+            <div class="rounded-3xl overflow-hidden border border-gray-200 bg-gray-50 shadow-sm">
+                <div class="px-4 py-3 border-b border-gray-200 bg-white font-semibold text-gray-800">Frontal</div>
+                <img src="{{ image_request.frontal_image.url }}" alt="Frontal upload" class="h-72 w-full object-cover">
+            </div>
+            {% endif %}
+
+            {% if image_request.left_lateral_image %}
+            <div class="rounded-3xl overflow-hidden border border-gray-200 bg-gray-50 shadow-sm">
+                <div class="px-4 py-3 border-b border-gray-200 bg-white font-semibold text-gray-800">Left Lateral</div>
+                <img src="{{ image_request.left_lateral_image.url }}" alt="Left lateral upload" class="h-72 w-full object-cover">
+            </div>
+            {% endif %}
+
+            {% if image_request.right_lateral_image %}
+            <div class="rounded-3xl overflow-hidden border border-gray-200 bg-gray-50 shadow-sm">
+                <div class="px-4 py-3 border-b border-gray-200 bg-white font-semibold text-gray-800">Right Lateral</div>
+                <img src="{{ image_request.right_lateral_image.url }}" alt="Right lateral upload" class="h-72 w-full object-cover">
+            </div>
+            {% endif %}
+        </div>
+
+        {% if not image_request.frontal_image and not image_request.left_lateral_image and not image_request.right_lateral_image %}
+        <div class="mt-8 rounded-3xl border border-gray-200 bg-gray-50 p-6 text-center text-gray-600">
+            No images have been uploaded for this request yet.
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

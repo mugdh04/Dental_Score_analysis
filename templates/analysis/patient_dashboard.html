@@ -24,6 +24,76 @@
     </div>
     {% endif %}
 
+    <div class="grid grid-cols-1 gap-6">
+        <div class="bg-white rounded-3xl border border-gray-100 shadow-sm p-6">
+            <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+                <div>
+                    <h3 class="text-2xl font-bold text-gray-800">Latest Clinical Score Summary</h3>
+                    <p class="text-sm text-gray-500 mt-1">These values come from your most recent report reviewed by your dentist.</p>
+                </div>
+                {% if latest_reviewed_report %}
+                <span class="rounded-full bg-teal-50 text-teal-700 px-4 py-2 text-sm font-semibold">Updated {{ latest_reviewed_report.reviewed_at|date:"d M Y" }}</span>
+                {% endif %}
+            </div>
+            <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 mt-6">
+                {% with report=latest_reviewed_report %}
+                {% if report %}
+                <div class="rounded-3xl border border-gray-200 bg-gray-50 p-5 text-center">
+                    <p class="text-sm text-gray-500 uppercase tracking-wider">MGI</p>
+                    <p class="text-4xl font-bold text-gray-900 mt-3">{{ report.mgi_score }}</p>
+                    <p class="text-xs text-gray-500 mt-2">Modified Gingival Index</p>
+                </div>
+                <div class="rounded-3xl border border-gray-200 bg-gray-50 p-5 text-center">
+                    <p class="text-sm text-gray-500 uppercase tracking-wider">OHI</p>
+                    <p class="text-4xl font-bold text-gray-900 mt-3">{{ report.ohi_score }}</p>
+                    <p class="text-xs text-gray-500 mt-2">Oral Hygiene Index</p>
+                </div>
+                <div class="rounded-3xl border border-gray-200 bg-gray-50 p-5 text-center">
+                    <p class="text-sm text-gray-500 uppercase tracking-wider">GEI</p>
+                    <p class="text-4xl font-bold text-gray-900 mt-3">{{ report.gei_score }}</p>
+                    <p class="text-xs text-gray-500 mt-2">Gingival Enlargement Index</p>
+                </div>
+                <div class="rounded-3xl border border-gray-200 bg-gray-50 p-5 text-center">
+                    <p class="text-sm text-gray-500 uppercase tracking-wider">PI</p>
+                    <p class="text-4xl font-bold text-gray-900 mt-3">{{ report.plaque_score }}</p>
+                    <p class="text-xs text-gray-500 mt-2">Plaque Index</p>
+                </div>
+                {% else %}
+                <div class="col-span-full rounded-3xl border border-gray-200 bg-gray-50 p-5 text-center text-gray-600">
+                    No reviewed report is available yet. Your dentist-approved score summary will appear here once available.
+                </div>
+                {% endif %}
+                {% endwith %}
+            </div>
+        </div>
+
+        {% if pending_image_request %}
+        <div class="bg-white rounded-3xl border border-orange-100 shadow-sm p-6">
+            <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                <div>
+                    <h3 class="text-xl font-bold text-gray-800">Upload Requested Images with Ink</h3>
+                    <p class="text-sm text-gray-600 mt-1">Your dentist has requested these images. Please upload only the checked views and use ink when taking the photos.</p>
+                </div>
+                <a href="{% url 'analysis:upload_requested_images' pending_image_request.id %}" class="rounded-xl bg-orange-600 px-5 py-3 text-white font-semibold hover:bg-orange-700 transition-all">Upload Images with Ink</a>
+            </div>
+            <div class="mt-5 grid grid-cols-1 sm:grid-cols-3 gap-3 text-sm text-gray-700">
+                <div class="rounded-2xl border border-gray-200 bg-gray-50 p-3">
+                    <p class="font-semibold">Requested Views</p>
+                    <p class="mt-2">{{ pending_image_request.requested_summary }}</p>
+                </div>
+                <div class="rounded-2xl border border-gray-200 bg-gray-50 p-3">
+                    <p class="font-semibold">Requested by</p>
+                    <p class="mt-2">Dr. {{ pending_image_request.dentist.display_name }}</p>
+                </div>
+                <div class="rounded-2xl border border-gray-200 bg-gray-50 p-3">
+                    <p class="font-semibold">Requested on</p>
+                    <p class="mt-2">{{ pending_image_request.requested_at|date:"d M Y" }}</p>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+    </div>
+
     <div class="grid grid-cols-1 xl:grid-cols-2 gap-6">
         <div class="bg-white rounded-3xl shadow-sm border border-gray-100 p-6 space-y-5">
             <div class="flex items-center gap-3 pb-3 border-b border-gray-100">

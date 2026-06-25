@@ -118,7 +118,48 @@
         <div class="xl:col-span-8 flex flex-col gap-6">
             
             <h3 class="text-2xl font-bold text-gray-800 mb-2 border-b pb-2">Analysis Reports Queue</h3>
-            
+            <div class="bg-white rounded-3xl border border-gray-100 shadow-sm p-6 mb-6">
+                <form method="get" action="{% url 'analysis:dentist_dashboard' %}" class="grid grid-cols-1 md:grid-cols-[1fr_auto] gap-4 items-end">
+                    <div>
+                        <label for="id_patient_search" class="block text-sm font-semibold text-gray-700 mb-2">Search Reports by Patient Name or Phone</label>
+                        <input id="id_patient_search" name="patient_search" value="{{ report_search_query }}" placeholder="Search by patient name or phone number" class="w-full rounded-xl border border-gray-300 px-4 py-3 focus:border-dental-600 focus:ring-2 focus:ring-dental-200 bg-white" />
+                    </div>
+                    <button type="submit" class="rounded-xl bg-dental-600 px-5 py-3 text-white font-semibold hover:bg-dental-700 transition-all">Search</button>
+                </form>
+                {% if report_search_query %}
+                <div class="mt-5 space-y-3">
+                    {% if searched_reports and searched_reports.exists %}
+                    <div class="rounded-2xl border border-teal-100 bg-teal-50 p-4 text-sm text-teal-800">
+                        Showing {{ searched_reports.count }} report{{ searched_reports.count|pluralize }} matching "{{ report_search_query }}" sorted newest first.
+                    </div>
+                    <div class="grid gap-4 mt-4">
+                        {% for report in searched_reports %}
+                        <a href="{% url 'analysis:results' report.pk %}" class="block rounded-3xl border border-gray-200 bg-white p-4 shadow-sm hover:border-dental-200 hover:shadow-md transition-all">
+                            <div class="flex items-center justify-between gap-3">
+                                <div>
+                                    <p class="font-bold text-gray-800">{{ report.patient_name }}</p>
+                                    <p class="text-sm text-gray-500">Report ID: {{ report.unique_code }}</p>
+                                </div>
+                                <span class="text-xs uppercase tracking-wider text-gray-500">{{ report.created_at|date:"d M Y" }}</span>
+                            </div>
+                            <div class="mt-3 grid grid-cols-2 gap-3 text-sm text-gray-600">
+                                <div>MGI: {{ report.mgi_score|default:'N/A' }}</div>
+                                <div>OHI: {{ report.ohi_score|default:'N/A' }}</div>
+                                <div>GEI: {{ report.gei_score|default:'N/A' }}</div>
+                                <div>PI: {{ report.plaque_score|default:'N/A' }}</div>
+                            </div>
+                        </a>
+                        {% endfor %}
+                    </div>
+                    {% else %}
+                    <div class="rounded-3xl border border-gray-200 bg-gray-50 p-4 text-sm text-gray-600">
+                        No reports found for "{{ report_search_query }}". Try a different name or phone number.
+                    </div>
+                    {% endif %}
+                </div>
+                {% endif %}
+            </div>
+
             <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
                 <!-- Unreviewed -->
                 <div class="bg-white rounded-3xl p-5 shadow-sm border border-gray-100 min-h-[400px]">
@@ -204,6 +245,100 @@
         </div>
 
         <div class="grid grid-cols-1 xl:grid-cols-2 gap-6">
+            <div class="bg-white rounded-3xl border border-gray-100 shadow-sm p-6">
+                <h4 class="text-lg font-bold text-gray-800 mb-4 flex items-center gap-2">
+                    <i data-lucide="camera" class="w-4 h-4 text-dental-600"></i>
+                    Request Images from Patient
+                </h4>
+                <form method="post" action="{% url 'analysis:request_images' %}" class="space-y-5">
+                    {% csrf_token %}
+                    <div>
+                        <label class="block text-sm font-semibold text-gray-700 mb-2">Select Patient</label>
+                        {{ request_image_form.patient }}
+                    </div>
+                    <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                        <label class="inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 cursor-pointer">
+                            {{ request_image_form.frontal_requested }}
+                            <span class="text-sm text-gray-700">Frontal</span>
+                        </label>
+                        <label class="inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 cursor-pointer">
+                            {{ request_image_form.left_lateral_requested }}
+                            <span class="text-sm text-gray-700">Left Lateral</span>
+                        </label>
+                        <label class="inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 cursor-pointer">
+                            {{ request_image_form.right_lateral_requested }}
+                            <span class="text-sm text-gray-700">Right Lateral</span>
+                        </label>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-semibold text-gray-700 mb-2">Instructions for patient</label>
+                        {{ request_image_form.message }}
+                    </div>
+                    <p class="text-sm text-gray-500">Your patient will receive a notification with exact upload instructions and only the requested views will be available.</p>
+                    <button type="submit" class="rounded-xl bg-dental-600 px-4 py-3 text-white font-semibold hover:bg-dental-700 transition-all">
+                        Request Images
+                    </button>
+                </form>
+            </div>
+
+            <div class="bg-white rounded-3xl border border-blue-100 shadow-sm p-6">
+                <h4 class="text-lg font-bold text-gray-800 mb-4 flex items-center gap-2">
+                    <i data-lucide="layers" class="w-4 h-4 text-blue-600"></i>
+                    Requested uploads
+                </h4>
+                <div class="space-y-4 max-h-[400px] overflow-y-auto pr-1">
+                    {% if pending_image_requests.exists %}
+                    <div class="rounded-3xl border border-teal-100 bg-teal-50 p-4 text-sm text-teal-800">
+                        <p class="font-semibold mb-3">Pending image requests</p>
+                        <ul class="space-y-2">
+                            {% for req in pending_image_requests %}
+                            <li class="rounded-2xl border border-teal-200 bg-white p-4">
+                                <div class="flex items-center justify-between gap-2">
+                                    <div>
+                                        <p class="text-sm font-bold text-gray-800">{{ req.patient.display_name }}</p>
+                                        <p class="text-xs text-gray-500">Requested: {{ req.requested_summary }}</p>
+                                    </div>
+                                    <span class="text-xs text-gray-500">{{ req.requested_at|date:"d M Y" }}</span>
+                                </div>
+                            </li>
+                            {% endfor %}
+                        </ul>
+                    </div>
+                    {% endif %}
+
+                    {% if completed_image_requests.exists %}
+                    <div class="rounded-3xl border border-blue-200 bg-blue-50 p-4 text-sm text-blue-800">
+                        <p class="font-semibold mb-3">Completed uploads</p>
+                        <ul class="space-y-2">
+                            {% for req in completed_image_requests %}
+                            <li class="rounded-2xl border border-blue-200 bg-white p-4">
+                                <div class="flex items-center justify-between gap-2">
+                                    <div>
+                                        <p class="text-sm font-bold text-gray-800">{{ req.patient.display_name }}</p>
+                                        <p class="text-xs text-gray-500">Uploaded: {{ req.requested_summary }}</p>
+                                    </div>
+                                    <span class="text-xs text-gray-500">{{ req.completed_at|date:"d M Y" }}</span>
+                                </div>
+                                <div class="mt-3 flex flex-wrap items-center gap-3">
+                                    <a href="{% url 'analysis:view_requested_images' req.pk %}" class="inline-flex items-center gap-2 rounded-full bg-blue-600 px-3 py-2 text-white text-sm font-semibold hover:bg-blue-700 transition-all">
+                                        View uploaded images
+                                    </a>
+                                    <span class="rounded-full bg-blue-100 px-3 py-1 text-xs font-semibold text-blue-700">{{ req.requested_summary }}</span>
+                                </div>
+                            </li>
+                            {% endfor %}
+                        </ul>
+                    </div>
+                    {% endif %}
+
+                    {% if not pending_image_requests.exists and not completed_image_requests.exists %}
+                    <div class="rounded-xl border border-dashed border-gray-200 bg-gray-50 p-6 text-center text-sm text-gray-500">
+                        No requested uploads yet.
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+
             <div class="bg-white rounded-3xl border border-gray-100 shadow-sm p-6">
                 <h4 class="text-lg font-bold text-gray-800 mb-4 flex items-center gap-2">
                     <i data-lucide="send" class="w-4 h-4 text-dental-600"></i>

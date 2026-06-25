@@ -5,6 +5,7 @@ import uuid
 from django.conf import settings
 from django.contrib.auth.models import AbstractUser
 from django.db import models
+from django.utils import timezone
 
 # -----------------------------------------------------------------------------
 # Change Note (2026-04-03)
@@ -292,6 +293,80 @@ class DentistSuggestion(models.Model):
 
     def __str__(self):
         return f"Suggestion by Dr. {self.dentist.display_name} to {self.patient.display_name}"
+
+
+class DentistImageRequest(models.Model):
+    """Dentist request for patient images from specific angles."""
+
+    STATUS_PENDING = 'pending'
+    STATUS_COMPLETED = 'completed'
+    STATUS_CHOICES = [
+        (STATUS_PENDING, 'Pending'),
+        (STATUS_COMPLETED, 'Completed'),
+    ]
+
+    dentist = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='sent_image_requests',
+        limit_choices_to={'role': DentalUser.ROLE_DENTIST},
+    )
+    patient = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='received_image_requests',
+        limit_choices_to={'role': DentalUser.ROLE_PATIENT},
+    )
+    frontal_requested = models.BooleanField(default=False)
+    left_lateral_requested = models.BooleanField(default=False)
+    right_lateral_requested = models.BooleanField(default=False)
+    message = models.TextField(blank=True, default='')
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_PENDING, db_index=True)
+    requested_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    frontal_image = models.ImageField(upload_to='uploads/requests/frontal/', null=True, blank=True)
+    left_lateral_image = models.ImageField(upload_to='uploads/requests/left_lateral/', null=True, blank=True)
+    right_lateral_image = models.ImageField(upload_to='uploads/requests/right_lateral/', null=True, blank=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ['-requested_at']
+        indexes = [
+            models.Index(fields=['dentist', 'status', 'requested_at']),
+            models.Index(fields=['patient', 'status', 'requested_at']),
+        ]
+
+    def __str__(self):
+        return f"Image request for {self.patient.display_name} by Dr. {self.dentist.display_name}"
+
+    @property
+    def requested_view_names(self):
+        names = []
+        if self.frontal_requested:
+            names.append('Frontal')
+        if self.left_lateral_requested:
+            names.append('Left Lateral')
+        if self.right_lateral_requested:
+            names.append('Right Lateral')
+        return names
+
+    @property
+    def requested_summary(self):
+        views = self.requested_view_names
+        if not views:
+            return 'No views requested.'
+        return ', '.join(views)
+
+    @property
+    def is_completed(self):
+        return self.status == self.STATUS_COMPLETED
+
+    def save(self, *args, **kwargs):
+        if self.status == self.STATUS_COMPLETED and self.completed_at is None:
+            self.completed_at = timezone.now()
+        if self.status != self.STATUS_COMPLETED:
+            self.completed_at = None
+        super().save(*args, **kwargs)
 
 
 class AppointmentRequest(models.Model):
