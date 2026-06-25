@@ -21,5 +21,11 @@ venv/
 media/uploads/frontal/
 media/uploads/left_lateral/
 media/uploads/right_lateral/
+media/gradcam/
 
 Thesis_Data/
+testing_data/
+outputs/plots/
+ml/checkpoints/
+.git-rewrite/
+db.sqlite3.bak_*
