@@ -1,11 +1,11 @@
 {
   "model_type": "OralHealthModelV4",
   "models": [
-    "C:\\Users\\Mugdh\\CodeSpace\\Dental_Score_analysis\\models\\checkpoints\\fold_1_swa.pth",
-    "C:\\Users\\Mugdh\\CodeSpace\\Dental_Score_analysis\\models\\checkpoints\\fold_2_swa.pth",
-    "C:\\Users\\Mugdh\\CodeSpace\\Dental_Score_analysis\\models\\checkpoints\\fold_3_swa.pth",
-    "C:\\Users\\Mugdh\\CodeSpace\\Dental_Score_analysis\\models\\checkpoints\\fold_4_swa.pth",
-    "C:\\Users\\Mugdh\\CodeSpace\\Dental_Score_analysis\\models\\checkpoints\\fold_5_swa.pth"
+    "checkpoints/fold_1_swa.pth",
+    "checkpoints/fold_2_swa.pth",
+    "checkpoints/fold_3_swa.pth",
+    "checkpoints/fold_4_swa.pth",
+    "checkpoints/fold_5_swa.pth"
   ],
   "avg_thresholds": {
     "mgi": [
@@ -110,9 +110,9 @@
     "early_stopping_patience": 30,
     "seed": 42,
     "num_workers": 0,
-    "data_dir": "C:\\Users\\Mugdh\\CodeSpace\\Dental_Score_analysis\\Thesis_Data",
-    "checkpoint_dir": "C:\\Users\\Mugdh\\CodeSpace\\Dental_Score_analysis\\models\\checkpoints",
-    "plots_dir": "C:\\Users\\Mugdh\\CodeSpace\\Dental_Score_analysis\\outputs\\plots"
+    "data_dir": "Thesis_Data",
+    "checkpoint_dir": "models/checkpoints",
+    "plots_dir": "outputs/plots"
   },
   "label_mapping": {
     "mgi": "0,1,2,3,4 (unchanged)",
