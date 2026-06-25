@@ -36,9 +36,8 @@ graph TD
     end
 
     subgraph Runtime ML
-      I[ml/inference.py]
-      M[ml/model.py]
-      C[ml/checkpoints/best_model.pth]
+      I[inference/predict.py]
+      C[models/checkpoints/*]
     end
 
     subgraph New Training Stack
@@ -47,26 +46,22 @@ graph TD
       TL[training/loss.py]
       TT[training/trainer.py]
       TN[training/train_model.ipynb]
-      PP[preprocessing/*]
       IP[inference/predict.py]
     end
 
-    V --> I --> M --> C
+    V --> I --> C
     TN --> TD
     TN --> TM
     TN --> TL
     TN --> TT
-    TN --> PP
     TN --> IP
 ```
 
 ## Active Model Policy
 
-Current runtime uses one checkpoint only:
+Current runtime uses the checkpoints under [models/checkpoints](models/checkpoints).
 
-- Active model: [ml/checkpoints/best_model.pth](ml/checkpoints/best_model.pth)
-
-All older fold and training artifact checkpoints were removed to keep the codebase clean until next training run.
+Keep the runtime checkpoint bundle small and avoid committing training artifacts or private data.
 
 ## Quick Start
 
@@ -95,15 +90,11 @@ Use either notebook (both are kept):
 - [ml/Train_Model.ipynb](ml/Train_Model.ipynb)
 - [training/train_model.ipynb](training/train_model.ipynb)
 
-The new training notebook enforces CUDA and stops immediately if GPU is unavailable.
+The training scripts expect a dataset path provided through `DATA_DIR`. The public repo no longer bundles `Thesis_Data/`.
 
 ## Data Contract
 
-Primary label source:
-
-- [Thesis_Data/Thesis_Results.csv](Thesis_Data/Thesis_Results.csv)
-
-Image mapping convention:
+Provide your own dataset root with this layout:
 
 - Frontal: F{Sl No}
 - Left: L{Sl No}
@@ -116,7 +107,7 @@ Only complete triplets are used for training.
 | Capability | Status | Location |
 |---|---|---|
 | 3-view upload and async processing | Active | [analysis/views.py](analysis/views.py) |
-| MGI/OHI/GEI inference | Active | [ml/inference.py](ml/inference.py) |
+| MGI/OHI/GEI inference | Active | [inference/predict.py](inference/predict.py) |
 | PI persistence and display | Active | [analysis/models.py](analysis/models.py), [templates/analysis/results.html](templates/analysis/results.html) |
 | Startup model warm-up | Active | [analysis/apps.py](analysis/apps.py) |
 | New patch-based predictor module | Ready | [inference/predict.py](inference/predict.py) |
@@ -131,9 +122,9 @@ Runtime resolution order:
 
 1. MODEL_PATH environment variable
 2. settings MODEL_PATH
-3. Fallback to [ml/checkpoints/best_model.pth](ml/checkpoints/best_model.pth)
+3. Fallback to [models/checkpoints](models/checkpoints)
 
-Configured in [dental_project/settings.py](dental_project/settings.py) and used by [ml/inference.py](ml/inference.py).
+Configured in [dental_project/settings.py](dental_project/settings.py) and used by the runtime inference loader.
 
 </details>
 
@@ -153,7 +144,7 @@ If CUDA is False, training notebook will fail fast by design.
 <summary>Troubleshooting</summary>
 
 - Model not loading:
-  - Verify [ml/checkpoints/best_model.pth](ml/checkpoints/best_model.pth) exists.
+  - Verify your configured checkpoint path exists and `MODEL_PATH` points to it.
 - Slow inference:
   - Confirm warm-up is enabled in [dental_project/settings.py](dental_project/settings.py).
 - Training OOM:
@@ -166,9 +157,8 @@ If CUDA is False, training notebook will fail fast by design.
 ```text
 analysis/         Django app (views, models, forms, templates)
 dental_project/   Django project settings and routes
-ml/               Current runtime model and inference path
-preprocessing/    New image preprocessing stack (YOLO/SAM/patches)
 training/         New modular training stack + notebook
 inference/        New predictor + plaque algorithm
-Thesis_Data/      Labels and photos dataset
+models/           Runtime checkpoints and calibration assets
+templates/        HTML templates for the web app
 ```

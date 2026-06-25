@@ -94,6 +94,7 @@ seed_everything(42)
 # ─────────────────────────────────────────────────────────────────────────────
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
+DEFAULT_DATA_DIR = os.environ.get('DATA_DIR') or str(PROJECT_ROOT / 'data')
 
 CONFIG = {
     # ── Image ─────────────────────────────────────────────────────────
@@ -198,7 +199,7 @@ CONFIG = {
     "num_workers":                 0,   # 0 = Windows-safe
 
     # ── Paths ─────────────────────────────────────────────────────────
-    "data_dir":       str(PROJECT_ROOT / "Thesis_Data"),
+    "data_dir":       DEFAULT_DATA_DIR,
     "checkpoint_dir": str(PROJECT_ROOT / "models" / "checkpoints"),
     "plots_dir":      str(PROJECT_ROOT / "outputs"  / "plots"),
 }

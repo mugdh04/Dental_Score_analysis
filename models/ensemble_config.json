@@ -110,7 +110,7 @@
     "early_stopping_patience": 30,
     "seed": 42,
     "num_workers": 0,
-    "data_dir": "Thesis_Data",
+    "data_dir": "data",
     "checkpoint_dir": "models/checkpoints",
     "plots_dir": "outputs/plots"
   },

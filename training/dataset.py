@@ -1,4 +1,4 @@
-"""Dataset utilities for Thesis_Results.csv parsing and multi-view training.
+"""Dataset utilities for label CSV parsing and multi-view training.
 
 Supports:
   - Thesis_Results.csv (native format from the dataset)
@@ -91,7 +91,7 @@ def _load_from_thesis_results(data_dir: Path, labels_path: Path) -> List[Dict[st
     """Load image-level records using Thesis_Results.csv and F/L/R naming convention.
 
     Args:
-        data_dir: Root directory of the Thesis_Data folder.
+        data_dir: Root directory containing the thesis-style image folders.
         labels_path: Path to Thesis_Results.csv.
 
     Returns:
