@@ -9,11 +9,11 @@
             Dental Index Analysis
         </h2>
         <p class="text-gray-500 text-lg max-w-2xl mx-auto">
-            Upload three intraoral photographs to receive AI-powered predictions for 
-            <span class="text-dental-600 font-semibold">MGI</span>, 
-            <span class="text-dental-600 font-semibold">OHI</span>, 
-            <span class="text-dental-600 font-semibold">GEI</span>, and
-            <span class="text-dental-600 font-semibold">PI</span> scores.
+            Upload three normal intraoral photographs for
+            <span class="text-dental-600 font-semibold">MGI</span>,
+            <span class="text-dental-600 font-semibold">OHI</span> and
+            <span class="text-dental-600 font-semibold">GEI</span>, and/or three photographs taken after applying a
+            disclosing agent for <span class="text-dental-600 font-semibold">PI</span>.
         </p>
         {% if user.is_role_patient %}
         <p class="text-sm text-orange-700 bg-orange-50 border border-orange-200 rounded-xl px-4 py-3 mt-4 inline-block">
@@ -52,139 +52,37 @@
                 {% endif %}
             </div>
 
-            <!-- Image Upload Grid -->
-            <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-                <!-- Frontal View -->
-                <div>
-                    <label class="block text-sm font-semibold text-gray-700 mb-2 flex items-center gap-2">
-                        <i data-lucide="camera" class="w-4 h-4 text-dental-600"></i>
-                        Frontal View
-                    </label>
-                    <div class="upload-zone rounded-2xl p-6 text-center cursor-pointer relative overflow-hidden"
-                         @click="$refs.frontalInput.click()"
-                         @dragover.prevent="dragOver($event)"
-                         @dragleave.prevent="dragLeave($event)"
-                         @drop.prevent="handleDrop($event, 'frontal')"
-                         :class="{'ring-2 ring-dental-500 border-dental-500': previews.frontal}">
-                        
-                        <!-- Preview -->
-                        <template x-if="previews.frontal">
-                            <div class="relative">
-                                <img :src="previews.frontal" class="w-full h-40 object-cover rounded-xl mb-2">
-                                <button type="button" @click.stop="removeImage('frontal')" 
-                                        class="absolute top-1 right-1 bg-red-500 text-white rounded-full p-1 hover:bg-red-600 transition-colors">
-                                    <i data-lucide="x" class="w-3 h-3"></i>
-                                </button>
-                                <p class="text-xs text-dental-600 font-medium" x-text="fileNames.frontal"></p>
-                            </div>
-                        </template>
-                        
-                        <!-- Placeholder -->
-                        <template x-if="!previews.frontal">
-                            <div class="py-4">
-                                <div class="w-14 h-14 bg-dental-50 rounded-2xl mx-auto mb-3 flex items-center justify-center">
-                                    <i data-lucide="image-plus" class="w-7 h-7 text-dental-400"></i>
-                                </div>
-                                <p class="text-sm text-gray-500 font-medium">Click or drag to upload</p>
-                                <p class="text-xs text-gray-400 mt-1">Frontal intraoral photo</p>
-                            </div>
-                        </template>
-
-                        <input type="file" x-ref="frontalInput" name="frontal_image" 
-                               accept="image/*" class="hidden"
-                               @change="handleFileSelect($event, 'frontal')">
-                    </div>
-                    {% if form.frontal_image.errors %}
-                    <p class="mt-2 text-sm text-red-500">{{ form.frontal_image.errors.0 }}</p>
-                    {% endif %}
-                </div>
-
-                <!-- Left Lateral View -->
-                <div>
-                    <label class="block text-sm font-semibold text-gray-700 mb-2 flex items-center gap-2">
-                        <i data-lucide="camera" class="w-4 h-4 text-dental-600"></i>
-                        Left Lateral View
-                    </label>
-                    <div class="upload-zone rounded-2xl p-6 text-center cursor-pointer relative overflow-hidden"
-                         @click="$refs.leftInput.click()"
-                         @dragover.prevent="dragOver($event)"
-                         @dragleave.prevent="dragLeave($event)"
-                         @drop.prevent="handleDrop($event, 'left')"
-                         :class="{'ring-2 ring-dental-500 border-dental-500': previews.left}">
-                        
-                        <template x-if="previews.left">
-                            <div class="relative">
-                                <img :src="previews.left" class="w-full h-40 object-cover rounded-xl mb-2">
-                                <button type="button" @click.stop="removeImage('left')" 
-                                        class="absolute top-1 right-1 bg-red-500 text-white rounded-full p-1 hover:bg-red-600 transition-colors">
-                                    <i data-lucide="x" class="w-3 h-3"></i>
-                                </button>
-                                <p class="text-xs text-dental-600 font-medium" x-text="fileNames.left"></p>
-                            </div>
-                        </template>
-                        
-                        <template x-if="!previews.left">
-                            <div class="py-4">
-                                <div class="w-14 h-14 bg-dental-50 rounded-2xl mx-auto mb-3 flex items-center justify-center">
-                                    <i data-lucide="image-plus" class="w-7 h-7 text-dental-400"></i>
-                                </div>
-                                <p class="text-sm text-gray-500 font-medium">Click or drag to upload</p>
-                                <p class="text-xs text-gray-400 mt-1">Left lateral intraoral photo</p>
-                            </div>
-                        </template>
-
-                        <input type="file" x-ref="leftInput" name="left_lateral_image" 
-                               accept="image/*" class="hidden"
-                               @change="handleFileSelect($event, 'left')">
-                    </div>
-                    {% if form.left_lateral_image.errors %}
-                    <p class="mt-2 text-sm text-red-500">{{ form.left_lateral_image.errors.0 }}</p>
-                    {% endif %}
-                </div>
-
-                <!-- Right Lateral View -->
-                <div>
-                    <label class="block text-sm font-semibold text-gray-700 mb-2 flex items-center gap-2">
-                        <i data-lucide="camera" class="w-4 h-4 text-dental-600"></i>
-                        Right Lateral View
-                    </label>
-                    <div class="upload-zone rounded-2xl p-6 text-center cursor-pointer relative overflow-hidden"
-                         @click="$refs.rightInput.click()"
-                         @dragover.prevent="dragOver($event)"
-                         @dragleave.prevent="dragLeave($event)"
-                         @drop.prevent="handleDrop($event, 'right')"
-                         :class="{'ring-2 ring-dental-500 border-dental-500': previews.right}">
-                        
-                        <template x-if="previews.right">
-                            <div class="relative">
-                                <img :src="previews.right" class="w-full h-40 object-cover rounded-xl mb-2">
-                                <button type="button" @click.stop="removeImage('right')" 
-                                        class="absolute top-1 right-1 bg-red-500 text-white rounded-full p-1 hover:bg-red-600 transition-colors">
-                                    <i data-lucide="x" class="w-3 h-3"></i>
-                                </button>
-                                <p class="text-xs text-dental-600 font-medium" x-text="fileNames.right"></p>
-                            </div>
-                        </template>
-                        
-                        <template x-if="!previews.right">
-                            <div class="py-4">
-                                <div class="w-14 h-14 bg-dental-50 rounded-2xl mx-auto mb-3 flex items-center justify-center">
-                                    <i data-lucide="image-plus" class="w-7 h-7 text-dental-400"></i>
-                                </div>
-                                <p class="text-sm text-gray-500 font-medium">Click or drag to upload</p>
-                                <p class="text-xs text-gray-400 mt-1">Right lateral intraoral photo</p>
-                            </div>
-                        </template>
-
-                        <input type="file" x-ref="rightInput" name="right_lateral_image" 
-                               accept="image/*" class="hidden"
-                               @change="handleFileSelect($event, 'right')">
-                    </div>
-                    {% if form.right_lateral_image.errors %}
-                    <p class="mt-2 text-sm text-red-500">{{ form.right_lateral_image.errors.0 }}</p>
-                    {% endif %}
-                </div>
+            {% if form.non_field_errors %}
+            <div class="mb-6 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                {{ form.non_field_errors.0 }}
             </div>
+            {% endif %}
+
+            <!-- Normal photographs: MGI / OHI / GEI -->
+            <div class="mb-3">
+                <h3 class="text-base font-semibold text-gray-800">Normal photographs</h3>
+                <p class="text-sm text-gray-500">Without disclosing agent &mdash; used for MGI, OHI and GEI.</p>
+            </div>
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+                {% include "analysis/_upload_slot.html" with key="frontal" field=form.frontal_image label="Frontal View" hint="Frontal intraoral photo" %}
+                {% include "analysis/_upload_slot.html" with key="left" field=form.left_lateral_image label="Left Lateral View" hint="Left lateral intraoral photo" %}
+                {% include "analysis/_upload_slot.html" with key="right" field=form.right_lateral_image label="Right Lateral View" hint="Right lateral intraoral photo" %}
+            </div>
+
+            <!-- Disclosing-agent photographs: PI -->
+            <div class="mb-3">
+                <h3 class="text-base font-semibold text-gray-800">Photographs with disclosing agent</h3>
+                <p class="text-sm text-gray-500">Taken after applying disclosing solution &mdash; used for PI only.</p>
+            </div>
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+                {% include "analysis/_upload_slot.html" with key="dFrontal" field=form.disclosed_frontal_image label="Frontal View" hint="Frontal photo, disclosing agent" %}
+                {% include "analysis/_upload_slot.html" with key="dLeft" field=form.disclosed_left_lateral_image label="Left Lateral View" hint="Left lateral photo, disclosing agent" %}
+                {% include "analysis/_upload_slot.html" with key="dRight" field=form.disclosed_right_lateral_image label="Right Lateral View" hint="Right lateral photo, disclosing agent" %}
+            </div>
+
+            <p class="text-center text-sm text-gray-500 mb-6" x-show="!hasCompleteSet()">
+                Upload at least one complete set of three photographs.
+            </p>
 
             <!-- Submit Button -->
             <div class="text-center">
@@ -249,15 +147,29 @@
 {% block extra_scripts %}
 <script>
 function uploadForm() {
+    const SETS = { normal: ['frontal', 'left', 'right'], disclosed: ['dFrontal', 'dLeft', 'dRight'] };
+    const ALL = [...SETS.normal, ...SETS.disclosed];
+    const empty = (v) => Object.fromEntries(ALL.map((k) => [k, v]));
+
     return {
-        previews: { frontal: null, left: null, right: null },
-        fileNames: { frontal: '', left: '', right: '' },
+        previews: empty(null),
+        fileNames: empty(''),
         isSubmitting: false,
+
+        setState(keys) {
+            const filled = keys.filter((k) => this.previews[k]).length;
+            return filled === 0 ? 'empty' : (filled === keys.length ? 'complete' : 'partial');
+        },
+
+        hasCompleteSet() {
+            const n = this.setState(SETS.normal);
+            const d = this.setState(SETS.disclosed);
+            return n !== 'partial' && d !== 'partial' && (n === 'complete' || d === 'complete');
+        },
 
         get isFormValid() {
             const nameField = document.getElementById('id_patient_name');
-            return this.previews.frontal && this.previews.left && this.previews.right && 
-                   nameField && nameField.value.trim().length >= 2;
+            return this.hasCompleteSet() && nameField && nameField.value.trim().length >= 2;
         },
 
         handleFileSelect(event, type) {
@@ -269,12 +181,9 @@ function uploadForm() {
             event.target.closest('.upload-zone').classList.remove('drag-over');
             const file = event.dataTransfer.files[0];
             if (file && file.type.startsWith('image/')) {
-                // Set the file to the corresponding input
-                const inputRef = type === 'frontal' ? 'frontalInput' : 
-                                 type === 'left' ? 'leftInput' : 'rightInput';
                 const dt = new DataTransfer();
                 dt.items.add(file);
-                this.$refs[inputRef].files = dt.files;
+                this.$refs[type + 'Input'].files = dt.files;
                 this.setPreview(file, type);
             }
         },
@@ -292,9 +201,7 @@ function uploadForm() {
         removeImage(type) {
             this.previews[type] = null;
             this.fileNames[type] = '';
-            const inputRef = type === 'frontal' ? 'frontalInput' : 
-                             type === 'left' ? 'leftInput' : 'rightInput';
-            this.$refs[inputRef].value = '';
+            this.$refs[type + 'Input'].value = '';
             this.$nextTick(() => lucide.createIcons());
         },
 

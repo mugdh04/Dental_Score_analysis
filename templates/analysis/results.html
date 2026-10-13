@@ -295,7 +295,9 @@ Change Note (2026-04-03):
             </button>
             {% endif %}
         </div>
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+        {% if patient.has_normal_images %}
+        <p class="text-sm font-medium text-gray-600 mb-2">Normal (MGI, OHI, GEI)</p>
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
             <div class="rounded-2xl overflow-hidden border border-gray-200">
                 <img src="{{ patient.frontal_image.url }}" class="w-full h-44 object-cover" x-show="!showGradcam" alt="Frontal">
                 {% if patient.gradcam_frontal %}<img src="{{ patient.gradcam_frontal.url }}" class="w-full h-44 object-cover" x-show="showGradcam" x-cloak alt="Frontal Grad-CAM">{% endif %}
@@ -309,6 +311,21 @@ Change Note (2026-04-03):
                 {% if patient.gradcam_right %}<img src="{{ patient.gradcam_right.url }}" class="w-full h-44 object-cover" x-show="showGradcam" x-cloak alt="Right Grad-CAM">{% endif %}
             </div>
         </div>
+        {% endif %}
+        {% if patient.has_disclosed_images %}
+        <p class="text-sm font-medium text-gray-600 mb-2">With disclosing agent (PI)</p>
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div class="rounded-2xl overflow-hidden border border-gray-200">
+                <img src="{{ patient.disclosed_frontal_image.url }}" class="w-full h-44 object-cover" alt="Frontal, disclosing agent">
+            </div>
+            <div class="rounded-2xl overflow-hidden border border-gray-200">
+                <img src="{{ patient.disclosed_left_lateral_image.url }}" class="w-full h-44 object-cover" alt="Left Lateral, disclosing agent">
+            </div>
+            <div class="rounded-2xl overflow-hidden border border-gray-200">
+                <img src="{{ patient.disclosed_right_lateral_image.url }}" class="w-full h-44 object-cover" alt="Right Lateral, disclosing agent">
+            </div>
+        </div>
+        {% endif %}
     </div>
 
     <div class="glass-card rounded-2xl p-5 text-sm text-gray-600">

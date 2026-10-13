@@ -53,9 +53,20 @@ class PatientUploadForm(forms.ModelForm):
         ),
     )
 
+    NORMAL_FIELDS = ('frontal_image', 'left_lateral_image', 'right_lateral_image')
+    DISCLOSED_FIELDS = (
+        'disclosed_frontal_image',
+        'disclosed_left_lateral_image',
+        'disclosed_right_lateral_image',
+    )
+
     class Meta:
         model = PatientAnalysis
-        fields = ['patient_name', 'patient_user', 'frontal_image', 'left_lateral_image', 'right_lateral_image']
+        fields = [
+            'patient_name', 'patient_user',
+            'frontal_image', 'left_lateral_image', 'right_lateral_image',
+            'disclosed_frontal_image', 'disclosed_left_lateral_image', 'disclosed_right_lateral_image',
+        ]
         widgets = {
             'patient_name': forms.TextInput(attrs={
                 'class': 'w-full px-4 py-3 rounded-xl border-2 border-gray-200 '
@@ -79,6 +90,21 @@ class PatientUploadForm(forms.ModelForm):
                 'accept': 'image/*',
                 'id': 'right-upload',
             }),
+            'disclosed_frontal_image': forms.FileInput(attrs={
+                'class': 'hidden',
+                'accept': 'image/*',
+                'id': 'd-frontal-upload',
+            }),
+            'disclosed_left_lateral_image': forms.FileInput(attrs={
+                'class': 'hidden',
+                'accept': 'image/*',
+                'id': 'd-left-upload',
+            }),
+            'disclosed_right_lateral_image': forms.FileInput(attrs={
+                'class': 'hidden',
+                'accept': 'image/*',
+                'id': 'd-right-upload',
+            }),
         }
         labels = {
             'patient_name': 'Patient Name',
@@ -86,6 +112,9 @@ class PatientUploadForm(forms.ModelForm):
             'frontal_image': 'Frontal View',
             'left_lateral_image': 'Left Lateral View',
             'right_lateral_image': 'Right Lateral View',
+            'disclosed_frontal_image': 'Frontal View (disclosing agent)',
+            'disclosed_left_lateral_image': 'Left Lateral View (disclosing agent)',
+            'disclosed_right_lateral_image': 'Right Lateral View (disclosing agent)',
         }
 
     def __init__(self, *args, **kwargs):
@@ -111,6 +140,26 @@ class PatientUploadForm(forms.ModelForm):
         if len(name) < 2:
             raise forms.ValidationError('Patient name must be at least 2 characters.')
         return name
+
+    def clean(self):
+        cleaned = super().clean()
+        normal = [bool(cleaned.get(f)) for f in self.NORMAL_FIELDS]
+        disclosed = [bool(cleaned.get(f)) for f in self.DISCLOSED_FIELDS]
+
+        if any(normal) and not all(normal):
+            raise forms.ValidationError(
+                'Upload all three normal photographs (frontal, left, right) or none of them.'
+            )
+        if any(disclosed) and not all(disclosed):
+            raise forms.ValidationError(
+                'Upload all three disclosing-agent photographs (frontal, left, right) or none of them.'
+            )
+        if not all(normal) and not all(disclosed):
+            raise forms.ValidationError(
+                'Upload at least one complete set of three photographs: normal (for MGI, OHI, GEI) '
+                'and/or with disclosing agent (for PI).'
+            )
+        return cleaned
 
 
 class DentistCreatePatientForm(forms.Form):

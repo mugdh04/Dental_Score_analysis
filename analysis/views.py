@@ -219,10 +219,6 @@ def upload_view(request):
             post_data['patient_name'] = request.user.display_name
         form = PatientUploadForm(post_data, request.FILES, actor=request.user)
         if form.is_valid():
-            if 'frontal_image' not in request.FILES or 'left_lateral_image' not in request.FILES or 'right_lateral_image' not in request.FILES:
-                from django.http import HttpResponseBadRequest
-                return HttpResponseBadRequest("Exactly 3 images (frontal, left, right) must be provided.")
-                
             patient = form.save(commit=False)
             selected_patient = form.cleaned_data.get('patient_user')
 
@@ -341,8 +337,14 @@ def results_view(request, pk):
     plaque_score = patient.plaque_score if patient.plaque_score is not None else patient.ai_plaque_score
     plaque_label = patient.plaque_label or patient.ai_plaque_label
 
+    missing_label = 'Not assessed' if patient.status == 'completed' else 'Pending'
+    normal_na = 'Not assessed: no normal photographs uploaded' if patient.status == 'completed' else 'N/A'
+    disclosed_na = 'Not assessed: no disclosing-agent photographs uploaded' if patient.status == 'completed' else 'N/A'
+
     if plaque_label is None and plaque_score is not None:
         plaque_label = {0: 'None', 1: 'Low', 2: 'Medium', 3: 'High'}.get(plaque_score, 'Unknown')
+    if plaque_label is None:
+        plaque_label = missing_label
 
     low_confidence_warning = False
     if patient.ai_mgi_confidence is not None and patient.ai_mgi_confidence < 50.0:
@@ -354,14 +356,14 @@ def results_view(request, pk):
 
     context = {
         'patient': patient,
-        'mgi_desc': mgi_descriptions.get(patient.mgi_score, 'N/A'),
-        'ohi_desc': ohi_descriptions.get(patient.ohi_score, 'N/A'),
-        'gei_desc': gei_descriptions.get(patient.gei_score, 'N/A'),
-        'pi_desc': pi_descriptions.get(plaque_score, 'N/A') if plaque_score is not None else 'N/A',
+        'mgi_desc': mgi_descriptions.get(patient.mgi_score, normal_na),
+        'ohi_desc': ohi_descriptions.get(patient.ohi_score, normal_na),
+        'gei_desc': gei_descriptions.get(patient.gei_score, normal_na),
+        'pi_desc': pi_descriptions.get(plaque_score, disclosed_na) if plaque_score is not None else disclosed_na,
         
-        'mgi_label': mgi_labels.get(patient.mgi_score, 'Unknown'),
-        'ohi_label': ohi_labels.get(patient.ohi_score, 'Unknown'),
-        'gei_label': gei_labels.get(patient.gei_score, 'Unknown'),
+        'mgi_label': mgi_labels.get(patient.mgi_score, missing_label),
+        'ohi_label': ohi_labels.get(patient.ohi_score, missing_label),
+        'gei_label': gei_labels.get(patient.gei_score, missing_label),
         
         'mgi_badge_style': _plaque_badge_style(patient.mgi_score),
         'ohi_badge_style': _plaque_badge_style({0:0, 1:2, 2:3, 3:5}.get(patient.ohi_score, 0)),
@@ -1126,7 +1128,7 @@ def download_report_pdf_view(request, pk):
 
     def _severity_label(metric, value):
         if value is None:
-            return 'Pending'
+            return 'Not assessed' if patient.status == 'completed' else 'Pending'
         if metric == 'MGI':
             if value <= 1:
                 return 'Low'
@@ -1276,11 +1278,13 @@ def download_report_pdf_view(request, pk):
     card_gap = 14  # slightly wider gaps
     card_w = (content_w - (3 * card_gap)) / 4
 
+    normal_na = 'No normal photographs uploaded'
+    disclosed_na = 'No disclosing-agent photographs uploaded'
     scores = [
-        ('MGI', patient.mgi_score, 4, patient.mgi_confidence, mgi_descriptions.get(patient.mgi_score, 'N/A')),
-        ('OHI', patient.ohi_score, 3, patient.ohi_confidence, ohi_descriptions.get(patient.ohi_score, 'N/A')),
-        ('GEI', patient.gei_score, 2, patient.gei_confidence, gei_descriptions.get(patient.gei_score, 'N/A')),
-        ('PI', plaque_score, 5, plaque_confidence, pi_descriptions.get(plaque_score, 'N/A')),
+        ('MGI', patient.mgi_score, 4, patient.mgi_confidence, mgi_descriptions.get(patient.mgi_score, normal_na)),
+        ('OHI', patient.ohi_score, 3, patient.ohi_confidence, ohi_descriptions.get(patient.ohi_score, normal_na)),
+        ('GEI', patient.gei_score, 2, patient.gei_confidence, gei_descriptions.get(patient.gei_score, normal_na)),
+        ('PI', plaque_score, 5, plaque_confidence, pi_descriptions.get(plaque_score, disclosed_na)),
     ]
 
     for idx, (label, value, max_value, confidence, desc) in enumerate(scores):
@@ -1327,11 +1331,16 @@ def download_report_pdf_view(request, pk):
     c.setFont('Helvetica-Bold', 11)
     c.drawString(margin + 16, y - 24, 'Clinical Interpretation Summary')
 
+    def _summary(metric, value, descriptions, reason):
+        if value is None:
+            return f"{metric} not assessed ({reason.lower()})."
+        return f"{metric} indicates {descriptions.get(value, 'insufficient data')}."
+
     summary_lines = [
-        f"MGI indicates {mgi_descriptions.get(patient.mgi_score, 'insufficient data')}.",
-        f"OHI indicates {ohi_descriptions.get(patient.ohi_score, 'insufficient data')}.",
-        f"GEI indicates {gei_descriptions.get(patient.gei_score, 'insufficient data')}.",
-        f"PI indicates {pi_descriptions.get(plaque_score, 'insufficient data')}.",
+        _summary('MGI', patient.mgi_score, mgi_descriptions, normal_na),
+        _summary('OHI', patient.ohi_score, ohi_descriptions, normal_na),
+        _summary('GEI', patient.gei_score, gei_descriptions, normal_na),
+        _summary('PI', plaque_score, pi_descriptions, disclosed_na),
     ]
 
     if plaque_ratio is not None:
@@ -1463,48 +1472,46 @@ def _run_analysis(patient_pk):
         patient = PatientAnalysis.objects.get(pk=patient_pk)
 
         import time
-        start_time = time.time()
-        
-        predictor = get_predictor()
-        if not predictor:
-            raise ValueError("AI Predictor could not be initialized.")
-
-        # Get image paths
-        frontal_path = patient.frontal_image.path
-        left_path = patient.left_lateral_image.path
-        right_path = patient.right_lateral_image.path
-
-        # Run prediction
-        predictions = predictor.predict(frontal_path, left_path, right_path)
-        
-        # Latency tracking
-        latency = time.time() - start_time
-        global _LAST_INFERENCE_LATENCY
-        _LAST_INFERENCE_LATENCY = latency
-
-        # Compute plaque metrics using the new pi_estimator BEFORE logging
         import cv2
-        from inference.pi_estimator import estimate_pi
-        
-        try:
-            frontal_rgb = cv2.cvtColor(cv2.imread(frontal_path), cv2.COLOR_BGR2RGB)
-            left_rgb    = cv2.cvtColor(cv2.imread(left_path),    cv2.COLOR_BGR2RGB)
-            right_rgb   = cv2.cvtColor(cv2.imread(right_path),   cv2.COLOR_BGR2RGB)
-            
-            pi_result = estimate_pi(
-                frontal_rgb=frontal_rgb,
-                left_rgb=left_rgb,
-                right_rgb=right_rgb,
-                predicted_ohi=predictions['ohi']['score'],
-                verbose=False,
-            )
-        except Exception as e:
-            logger.warning(f"pi_estimator failed: {e}")
-            pi_result = {"pi_score": 0, "pi_raw": 0.0, "coverage_f": 0.0, "confidence": "low"}
-            
-        predictions['pi'] = pi_result  # Inject into the predictions dictionary
+        start_time = time.time()
 
-        # Log prediction to CSV
+        def _load_rgb(field):
+            img = cv2.imread(field.path)
+            if img is None:
+                raise ValueError(f"Cannot read image: {field.name}")
+            return cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+
+        mgi = ohi = gei = None
+        pi_result = None
+
+        # Normal photographs -> MGI / OHI / GEI (deep-learning ensemble).
+        if patient.has_normal_images:
+            predictor = get_predictor()
+            if not predictor:
+                raise ValueError("AI Predictor could not be initialized.")
+            predictions = predictor.predict(
+                patient.frontal_image.path,
+                patient.left_lateral_image.path,
+                patient.right_lateral_image.path,
+            )
+            mgi, ohi, gei = predictions['mgi'], predictions['ohi'], predictions['gei']
+
+        # Disclosing-agent photographs -> PI (stain coverage). PI is never
+        # computed from normal photographs: plaque is not reliably visible there.
+        if patient.has_disclosed_images:
+            from inference.disclosed_pi import estimate_pi_disclosed
+            pi_result = estimate_pi_disclosed(
+                _load_rgb(patient.disclosed_frontal_image),
+                _load_rgb(patient.disclosed_left_lateral_image),
+                _load_rgb(patient.disclosed_right_lateral_image),
+            )
+
+        global _LAST_INFERENCE_LATENCY
+        _LAST_INFERENCE_LATENCY = time.time() - start_time
+
+        pi_score = pi_result['pi_score'] if pi_result else None
+
+        # Log prediction to CSV (blank = not assessed)
         log_file = os.path.join(settings.BASE_DIR, 'inference_log.csv')
         try:
             _normalize_inference_log_file(log_file)
@@ -1517,71 +1524,40 @@ def _run_analysis(patient_pk):
                 writer.writerow([
                     timezone.now().isoformat(),
                     pid,
-                    predictions['mgi']['score'],
-                    predictions['ohi']['score'],
-                    predictions['gei']['score'],
-                    predictions['pi']['pi_score'],
+                    mgi['score'] if mgi else '',
+                    ohi['score'] if ohi else '',
+                    gei['score'] if gei else '',
+                    '' if pi_score is None else pi_score,
                 ])
         except Exception as e:
             logger.warning(f"Could not write to inference log: {e}")
 
         # Save results
-        patient.ai_mgi_score = predictions['mgi']['score']
-        patient.ai_ohi_score = predictions['ohi']['score']
-        patient.ai_gei_score = predictions['gei']['score']
+        for name, pred in (('mgi', mgi), ('ohi', ohi), ('gei', gei)):
+            score = pred['score'] if pred else None
+            confidence = pred['confidence'] * 100 if pred else None
+            setattr(patient, f'ai_{name}_score', score)
+            setattr(patient, f'{name}_score', score)
+            setattr(patient, f'ai_{name}_confidence', confidence)
+            setattr(patient, f'{name}_confidence', confidence)
 
-        patient.mgi_score = predictions['mgi']['score']
-        patient.ohi_score = predictions['ohi']['score']
-        patient.gei_score = predictions['gei']['score']
-
-        # Convert to percentage
-        patient.ai_mgi_confidence = predictions['mgi']['confidence'] * 100
-        patient.ai_ohi_confidence = predictions['ohi']['confidence'] * 100
-        patient.ai_gei_confidence = predictions['gei']['confidence'] * 100
-
-        patient.mgi_confidence = predictions['mgi']['confidence'] * 100
-        patient.ohi_confidence = predictions['ohi']['confidence'] * 100
-        patient.gei_confidence = predictions['gei']['confidence'] * 100
         patient.review_status = PatientAnalysis.REVIEW_UNREVIEWED
         patient.reviewed_by = None
         patient.reviewed_at = None
 
-        # Mapping confidence string to float for the model fields
-        conf_map = {"high": 100.0, "medium": 60.0}
-        conf_val = conf_map.get(pi_result.get("confidence", "low").split()[0], 30.0)
+        if pi_score is not None:
+            conf_map = {"high": 100.0, "medium": 60.0}
+            conf_val = conf_map.get(pi_result.get("confidence", "low").split()[0], 30.0)
+            labels = {0: "No plaque", 1: "Trace", 2: "Mild", 3: "Moderate", 4: "Heavy", 5: "Severe"}
+            pl_label = labels.get(pi_score, "Unknown")
+            plaque_ratio = pi_result['coverage']  # stained fraction of tooth surface
+        else:
+            conf_val = pl_label = plaque_ratio = None
 
-        patient.ai_plaque_score = pi_result['pi_score']
-        patient.plaque_score = pi_result['pi_score']
-        
-        # We can store the weighted coverage in ratio fields if needed
-        patient.ai_plaque_ratio = pi_result['pi_raw'] / 5.0  # Normalize back to [0,1] if raw is 0-5
-        patient.plaque_ratio = pi_result['pi_raw'] / 5.0
-        
-        # Plaque label based on score
-        labels = {0: "No plaque", 1: "Trace", 2: "Mild", 3: "Moderate", 4: "Heavy", 5: "Severe"}
-        pl_label = labels.get(pi_result['pi_score'], "Unknown")
-        patient.ai_plaque_label = pl_label
-        patient.plaque_label = pl_label
-        
-        patient.ai_plaque_confidence = conf_val
-        patient.plaque_confidence = conf_val
-
-        # Save Grad-CAM images if available
-        if predictions.get('gradcam'):
-            gradcam_dir = os.path.join(settings.MEDIA_ROOT, 'gradcam')
-            os.makedirs(gradcam_dir, exist_ok=True)
-
-            for view_name, overlay in predictions['gradcam'].items():
-                filename = f"{patient.unique_code}_{view_name}.jpg"
-                filepath = os.path.join(gradcam_dir, filename)
-                overlay.save(filepath, 'JPEG', quality=90)
-
-                if view_name == 'frontal':
-                    patient.gradcam_frontal = f'gradcam/{filename}'
-                elif view_name == 'left_lateral':
-                    patient.gradcam_left = f'gradcam/{filename}'
-                else:
-                    patient.gradcam_right = f'gradcam/{filename}'
+        patient.ai_plaque_score = patient.plaque_score = pi_score
+        patient.ai_plaque_ratio = patient.plaque_ratio = plaque_ratio
+        patient.ai_plaque_label = patient.plaque_label = pl_label
+        patient.ai_plaque_confidence = patient.plaque_confidence = conf_val
 
         patient.status = 'completed'
         patient.save()

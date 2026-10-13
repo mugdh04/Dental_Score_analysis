@@ -128,10 +128,14 @@ class PatientAnalysis(models.Model):
         help_text='User who triggered the upload.',
     )
 
-    # Uploaded images
-    frontal_image = models.ImageField(upload_to='uploads/frontal/')
-    left_lateral_image = models.ImageField(upload_to='uploads/left_lateral/')
-    right_lateral_image = models.ImageField(upload_to='uploads/right_lateral/')
+    # Uploaded images. Normal photographs drive MGI/OHI/GEI; photographs taken
+    # after a disclosing agent drive PI. Either set (or both) may be supplied.
+    frontal_image = models.ImageField(upload_to='uploads/frontal/', null=True, blank=True)
+    left_lateral_image = models.ImageField(upload_to='uploads/left_lateral/', null=True, blank=True)
+    right_lateral_image = models.ImageField(upload_to='uploads/right_lateral/', null=True, blank=True)
+    disclosed_frontal_image = models.ImageField(upload_to='uploads/disclosed/frontal/', null=True, blank=True)
+    disclosed_left_lateral_image = models.ImageField(upload_to='uploads/disclosed/left_lateral/', null=True, blank=True)
+    disclosed_right_lateral_image = models.ImageField(upload_to='uploads/disclosed/right_lateral/', null=True, blank=True)
 
     # Processing status
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
@@ -209,6 +213,18 @@ class PatientAnalysis(models.Model):
 
     def __str__(self):
         return f"{self.patient_name} ({self.unique_code})"
+
+    @property
+    def has_normal_images(self):
+        return bool(self.frontal_image and self.left_lateral_image and self.right_lateral_image)
+
+    @property
+    def has_disclosed_images(self):
+        return bool(
+            self.disclosed_frontal_image
+            and self.disclosed_left_lateral_image
+            and self.disclosed_right_lateral_image
+        )
 
     @property
     def has_dentist_revision(self):

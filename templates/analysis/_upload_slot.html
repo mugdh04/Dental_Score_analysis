@@ -1,0 +1,43 @@
+<div>
+    <label class="block text-sm font-semibold text-gray-700 mb-2 flex items-center gap-2">
+        <i data-lucide="camera" class="w-4 h-4 text-dental-600"></i>
+        {{ label }}
+    </label>
+    <div class="upload-zone rounded-2xl p-6 text-center cursor-pointer relative overflow-hidden"
+         @click="$refs.{{ key }}Input.click()"
+         @dragover.prevent="dragOver($event)"
+         @dragleave.prevent="dragLeave($event)"
+         @drop.prevent="handleDrop($event, '{{ key }}')"
+         :class="{'ring-2 ring-dental-500 border-dental-500': previews.{{ key }}}">
+
+        <!-- Preview -->
+        <template x-if="previews.{{ key }}">
+            <div class="relative">
+                <img :src="previews.{{ key }}" class="w-full h-40 object-cover rounded-xl mb-2">
+                <button type="button" @click.stop="removeImage('{{ key }}')"
+                        class="absolute top-1 right-1 bg-red-500 text-white rounded-full p-1 hover:bg-red-600 transition-colors">
+                    <i data-lucide="x" class="w-3 h-3"></i>
+                </button>
+                <p class="text-xs text-dental-600 font-medium" x-text="fileNames.{{ key }}"></p>
+            </div>
+        </template>
+
+        <!-- Placeholder -->
+        <template x-if="!previews.{{ key }}">
+            <div class="py-4">
+                <div class="w-14 h-14 bg-dental-50 rounded-2xl mx-auto mb-3 flex items-center justify-center">
+                    <i data-lucide="image-plus" class="w-7 h-7 text-dental-400"></i>
+                </div>
+                <p class="text-sm text-gray-500 font-medium">Click or drag to upload</p>
+                <p class="text-xs text-gray-400 mt-1">{{ hint }}</p>
+            </div>
+        </template>
+
+        <input type="file" x-ref="{{ key }}Input" name="{{ field.html_name }}"
+               accept="image/*" class="hidden"
+               @change="handleFileSelect($event, '{{ key }}')">
+    </div>
+    {% if field.errors %}
+    <p class="mt-2 text-sm text-red-500">{{ field.errors.0 }}</p>
+    {% endif %}
+</div>
